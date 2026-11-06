@@ -1,63 +1,74 @@
-# ios-flame
+# ios-redfin
 
-**Apple's iOS 16 running on a Google Pixel 4.**
+**Apple's iOS 16 running on a Google Pixel 5.**
 
-A port of [ios-sweet](https://github.com/dipa-studio/ios-sweet) to the Pixel 4 (`flame`, Qualcomm SM8150 /
-Snapdragon 855, Adreno 640). Apple's open-source XNU kernel (xnu-8796, the iOS 16 generation), with ios-sweet's
-patches and the flame ones on top, runs the **unmodified iOS 16.7.16 (20H392) userland of the iPhone X**. The
-phone is booted with `fastboot boot` from Google's own bootloader. Nothing is flashed to the boot chain; the iOS
-root lives in the `userdata` partition.
+A port of [ios-sweet](https://github.com/dipa-studio/ios-sweet) to the Pixel 5 (`redfin`, Qualcomm SM7250 /
+Snapdragon 765G, Adreno 620), via [ios-flame](https://github.com/NWylynko/ios-flame) and its sunfish branch.
+Apple's open-source XNU kernel (xnu-8796, the iOS 16 generation), with ios-sweet's, flame's, sunfish's and the
+redfin patches on top, runs the **unmodified iOS 16.7.16 (20H392) userland of the iPhone X**. The phone is
+booted with `fastboot boot` from Google's own bootloader. Nothing is flashed to the boot chain; the iOS root
+lives in the `userdata` partition.
 
-![Lock screen, home screen, Settings, General, Control Center, Today view, Spotlight, Clock, Calendar, Notes, Photos and Safari, all rendered through Metal on the Adreno 640](docs/img/metal2-tour.jpg)
+![Lock screen, home screen, Settings, General, Control Center, Today view, Spotlight, Clock, Calendar, Notes, Photos and Safari, all rendered through Metal on the Adreno 620](docs/img/metal2-tour.jpg)
 
 > Experimental bring-up, not a usable phone OS. It **erases Android's user data**, Apple's security model is
 > mostly switched off (permissive AMFI and sandbox, stub keystore), and many parts are missing. Do not put
 > anything personal on it.
 
-## What works (2026-10-22, kernel 0124)
+## What works (2026-10-30, kernel 1046 / image rk5a)
 
 | Area | State |
 | --- | --- |
-| Boot | Google ABL (unlocked) -> `fastboot boot` of the shim -> XNU. Every reset lands back in fastboot (the shim sets the PMIC reboot reason) |
-| CPU | All 8 cores (4x Cortex-A55 + 4x Cortex-A76) at full clock, PSCI |
-| Storage | UFS 3.0; the iOS root is an HFS+ image in `userdata`, read/write |
-| Display | The 1080x2280 command-mode panel ABL leaves running. iOS sees an iPhone X (1125x2436); the Adreno 640 scales each frame to fit, with Apple's continuous corners |
-| GPU / Metal | Metal on Mesa's Turnip Vulkan driver through metal2vulkan (`sweetmtl=2`): backboardd, SpringBoard and apps render on the GPU, shaders compile on the phone. Swiping home screens runs at about 20-26 fps |
-| Touch, buttons | ST FTS touch over SPI; power and volume keys |
+| Boot | Google ABL (unlocked) -> `fastboot boot` of the shim -> XNU. Every reset lands back in fastboot (the shim sets the PON reason) |
+| CPU | All 8 cores (1x Cortex-A76 prime 2.4 GHz, 1x Cortex-A76 gold 2.2 GHz, 6x Cortex-A55 1.8 GHz), PSCI, DVFS with touch/frame boost |
+| Storage | UFS; the iOS root is an HFS+ image in `userdata`, read/write (~109 GiB once grown) |
+| Display | The 1080x2340 Samsung command-mode panel ABL leaves running, 90 Hz. iOS sees an iPhone X (1125x2436); the Adreno 620 scales each frame to fit, double-buffered, with Apple's continuous corners. Brightness slider works |
+| GPU / Metal | Metal on Mesa's Turnip Vulkan driver through metal2vulkan (`sweetmtl=2`): backboardd, SpringBoard and apps render on the GPU with a shader cache and pipeline prewarm. Home-screen swipes reach ~60 fps |
+| Touch, buttons | Samsung sec_ts over SPI, interrupt-driven; power and volume keys |
+| Haptics | The DRV2624 motor plays iOS's UI haptics (RedwoodAudio.driver actuator device) |
+| Sound, mic | Both CS35L41 speaker amps through the audio DSP; records from the ALC5513 (rt5514) mics |
+| Camera | Camera.app live preview and photos on the back (IMX363) and front (IMX355); ultra-wide (IMX481) streams |
 | USB | Ethernet to the Mac: SSH (dropbear), a kernel file server, the live kernel log, internet sharing |
-| Wi-Fi | The WCN3990 radio driven from userland (`wland`): scan, WPA2-PSK, joins at boot. **Settings -> Wi-Fi works** (wifid on en0, iOS's own DHCP) |
-| Apps | Settings, Safari (renders full pages), Clock, Calendar, Notes, Photos and the other stock apps. An ad hoc-signed third-party IPA (YouTube) launches and browses |
-| Time | PM8150 RTC |
+| Wi-Fi | The radio driven from userland (`wland`): **Settings -> Wi-Fi works**, wifid joins at boot and rejoins after a dropped link |
+| Bluetooth | WCN3998 over UART through `btd`'s bridge: **Settings -> Bluetooth** scans and finds nearby devices |
+| Battery | Real percentage from the fuel gauge (seeded from the gauge, then coulomb-counted) |
+| Sensors | The DSP's sensor process stays up (`fastrpcd`); accelerometer, gyro, light, compass and pressure reach iOS as HID services through `sensd` |
+| Apps | The stock apps from the IPSW (Settings, Safari, Camera, Photos, Notes, Weather, Voice Memos, Calculator, Clock, ...) and app extensions (e.g. text-to-speech voices) |
+| Time | PMIC RTC |
 
-**Not working yet:** audio, video playback (mediaserverd crashes), Bluetooth, cellular, camera, sensors, GPS,
-SEP / Face ID, HEIC/HEVC decoding (no software decoder), Today-view widgets with Metal (they use the CPU path),
-real battery readings.
+**Not working yet:** charging while iOS runs (charge the phone in the bootloader), Wi-Fi signal bars (the signal
+patch is held back: it resets the phone on join), auto-rotation, auto-brightness and the proximity sensor, the
+Control Center flashlight button, Bluetooth pairing and audio profiles (untested), cellular, GPS, NFC, the
+fingerprint sensor, SEP, hardware video decode/encode, App Store and Apple ID services.
 
 ## How it boots
 
 ```
 ABL (Google's bootloader, unlocked)
-  -> fastboot boot shim-boot.img          LZ4 kernel + AVB hash footer, or ABL refuses it
-       shim (shim/): acts as iBoot. Logs to UFS, sets the PON reason, arms the watchdog,
-       builds the boot args and jumps to XNU with an Apple device tree (tools/mkadt.py)
-  -> XNU (xnu/patches): every driver built in: UFS, display, GPU, touch, keys, USB, RTC,
-       RPMh, /dev/pmem for the userland drivers, en0 for wifid
+  -> fastboot boot redfin-rNN.img       LZ4 kernel + AVB hash footer, or ABL refuses it
+       shim (shim/): acts as iBoot. Logs to UFS, sets the PON reason, builds the boot args
+       and jumps to XNU with an Apple device tree (tools/mkadt.py)
+  -> XNU (xnu/patches): every driver built in: UFS, display, GPU, touch, keys, USB, RTC, RPMh,
+       audio DSP (APR, FastRPC, QRTR), speaker amps, mics, haptics, cameras, flash, thermal,
+       CPU frequency, battery, sensor HID services, Bluetooth UART bridge, en0 for wifid
   -> launchd and the iPhone X userland from userdata
-       + phone/: SweetMetal2.bundle (Metal), wland (Wi-Fi), debug tools
+       + phone/: SweetMetal2.bundle (Metal), RedwoodAudio.driver (sound, haptics, camera),
+         wland (Wi-Fi), btd + bluetool (Bluetooth), fastrpcd + sensd (DSP files, sensors), debug tools
 ```
 
 ## Repository
 
 | Path | What |
 | --- | --- |
-| `xnu/patches/` | 0001-0081 from ios-sweet, 0082-0124 for flame ([list](NOTES.md#flame-patches), [how to build](xnu/README.md)) |
+| `xnu/patches/` | 0001-0081 from ios-sweet, 0082-0124 from ios-flame, 0125-0160 from the sunfish series, **0900-1046 for redfin** (272 patches; [one line per patch](NOTES.md#redfin-patches)) |
 | `shim/` | The bare-metal shim ABL boots (`shim/build.sh`) |
 | `tools/` | Host tools: ADT and payload, boot-and-collect-logs loop, SSH/file/command access to the running phone, GPU and Metal debugging, ios-sweet's root-image scripts |
 | `phone/` | Code that runs in iOS: `wifi/` (wland), `metal2/` + `turnip/` (Metal on Turnip), `metal/` (the older template driver), `gpu/`, `tools/` (psx, pstack, openapp, lsreg, netsvc, oslog, ...) |
-| [NOTES.md](NOTES.md) | Hardware facts, Google ABL boot image rules, test loop, one line per flame patch |
+| [NOTES.md](NOTES.md) | Hardware facts, Google ABL boot image rules, test loop, one line per redfin patch |
 | [HANDOFF.md](HANDOFF.md) | The engineering log, newest first: every step, what broke and why |
 | [METAL-NEXT.md](METAL-NEXT.md) | The plan for Metal at user quality (metal2vulkan + Turnip) and why |
 | [RECOVERY.md](RECOVERY.md), [DEVICE.md](DEVICE.md) | Back to stock Android; the test phone and host setup |
+| [docs/redfin/](docs/redfin/) | Port plan, hardware map, known-good state (rk5a), quality-of-life and scanout plans, disabled-services list |
 | `docs/ios-sweet/` | ios-sweet's README and notes (the history of patches 0001-0081) |
 
 ## Not in git: what you need to get yourself
@@ -65,24 +76,25 @@ ABL (Google's bootloader, unlocked)
 Scripts expect these at the paths shown (all gitignored). None of them can be shared: they are Apple's or
 Google's/Qualcomm's files, or data from your own phone.
 
-- **The phone**: a Pixel 4 (`flame`; the 4 XL `coral` is untested) with the bootloader unlocked, on the final
-  Android 13 build `TP1A.221005.002.B2`. Keep Google's factory image in `images/` ([RECOVERY.md](RECOVERY.md)).
-  Back up the per-device partitions first (persist, modemst1/2, fsg, fsc, ...) into `backup/`. They hold your
-  IMEI and calibration data, so keep them private.
-- **Boot image tools**: AOSP `mkbootimg` in `downloads/mkbootimg/`, `avbtool.py` in `downloads/avb/`, and the
-  stock DTB (`python3 tools/unpack_bootv2.py boot.img stock/` on the factory image's boot.img) as `stock/dtb`.
-- **TWRP** 3.7.1_12-0 for flame in `downloads/twrp/`. It writes the root image and reads the logs back. The
-  test loop keeps it in `boot_a` (see NOTES.md).
+- **The phone**: a Pixel 5 (`redfin`) with the bootloader unlocked, on the final Android 14 build
+  `UP1A.231105.001.B2`. Keep Google's factory image ([RECOVERY.md](RECOVERY.md)). Back up the per-device
+  partitions first (persist, modemst1/2, fsg, fsc, ...). They hold your IMEI and calibration data, so keep
+  them private.
+- **Boot image tools**: AOSP `mkbootimg` in `downloads/mkbootimg/` and `avbtool.py` in `downloads/avb/`.
+  Boot header v3: ABL takes the DTB from `vendor_boot`, so no stock DTB is needed.
+- **TWRP** 3.7.0_11-0 for redfin (`recovery/twrp.img`, sha256 `9adc9aae...`). It writes the root image and
+  reads the logs back. Boot it with `fastboot boot`, never flash it.
 - **The iOS root**: the iPhone X iOS 16.7.16 (20H392) IPSW. `tools/remotezip.py` fetches single files from
-  Apple's CDN. Build the HFS+ image with `tools/mkiosroot.sh` in a Linux VM (apfs-fuse, hfsprogs), then run
-  `tools/sweet-root-tweaks.py`. Write it from TWRP with `adb exec-in 'dd of=/dev/block/sda15 bs=4194304' < IMG`,
-  not `fastboot flash userdata` (ABL hangs on the last chunk).
+  Apple's CDN (the three DMGs are ~7.5 GB, not the whole 6.2 GB+ restore). Build the HFS+ volume with
+  `tools/build-root-mac.sh` on macOS (needs one sudo: owners inside the volume must be root/_logd/mobile),
+  then write it from TWRP with `tools/redfin-install-root.sh`, not `fastboot flash userdata`.
 - **Firmware** from the factory image's `vendor.img` (`/firmware`):
-  - GPU: `a640_gmu.bin`, `a640_zap.mdt`/`.b02` and `a630_sqe.fw` in `research/gpu/fw/` (`flame-run.sh -G`
-    puts them in the device tree).
-  - Wi-Fi: `wlanmdsp.mbn`, `modemuw.jsn` and `bdwlan-flame.bin`, plus the modem's `modem.mdt`/`.bNN` and
-    `modemr.jsn`, in `/var/local/fw/modem` on the phone.
-  - Your own modemst1/modemst2/fsg/fsc images go in `/var/local/fw/rmtfs` on the phone (HANDOFF.md, "WiFi, part 1").
+  - GPU: `a650_gmu.bin`, `a650_sqe.fw` and `a620_zap.mdt`/`.bNN` (put into the device tree by
+    `mkpayload.py --gpufw`).
+  - Audio DSP: `adsp.*` in `/private/var/local/fw` on the phone; the sensor files for `fastrpcd`.
+  - Wi-Fi and modem firmware plus your own modemst/fsg images.
+  - Bluetooth: `crbtfw32.tlv`, `crnv32.bin` in `/private/var/local/fw`.
+  - Cameras: register tables made from the vendor camera module files with `tools/redfin-camtab.py`.
 - **Toolchains**: Xcode with the iOS SDK (`work/userland/bin/ios-cc`), Homebrew `llvm`, `lld` and `lz4` for the
   shim, [blacktop/darwin-xnu-build](https://github.com/blacktop/darwin-xnu-build) for the first kernel build,
   Mesa and metal2vulkan checkouts for `tools/build-turnip-ios.sh` and `tools/build-m2v-bridge.sh` (pins in the
@@ -90,20 +102,24 @@ Google's/Qualcomm's files, or data from your own phone.
 
 ## Run it
 
+The kernel needs Xcode 15's `iig` in the original recipe, but patch 0082 adds `IORPC.kernelContent` for
+Xcode 16+ `iig`, so the CI runs on `macos-15` (macos-14 has been retired by GitHub).
+
 ```sh
-python3 tools/mkadt.py work/boot/flame-hi.adt --highmem     # Apple device tree for flame
-tools/build-xnu.sh $PWD/work/build.log                       # kernel (after one full darwin-xnu-build run)
-cp work/dxb/build/xnu.obj/DEVELOPMENT_ARM64_SWEET/kernel.development.sweet work/boot/kernel-0124
-tools/flame-run.sh first -k work/boot/kernel-0124 -s 600 -G -a "sweetusb=2 sweetmtl=2"   # one boot + logs
-# once, with the phone up and FlameBridge running (tools/flamebridge/build.sh, open the app):
-ssh-keygen -t ed25519 -N '' -f work/userland/ssh/id_ed25519 && tools/flame-install-ssh.sh
-tools/flame-fresh-run.sh second 1800 sweetmtl=2              # from then on: boot and wait for SSH
-tools/flame-ssh                                              # root shell in iOS
+gh workflow run xnu.yml --ref main                      # kernel -> branch builds-xnu, artifact xnu-kernel
+python3 tools/mkadt.py work/boot/redfin-hi.adt --highmem --camera --flash --backlight
+python3 tools/mkpayload.py xnu/out/kernel.development.sweet work/boot/redfin-hi.adt \
+    work/boot/payload.bin --cmdline "$(cat work/boot/redfin.cmdline)"
+shim/build.sh "$PWD/work/boot/payload.bin" "$PWD/out/redfin.img"
+sudo bash tools/build-root-mac.sh 32g                   # iOS root image (one sudo)
+bash tools/redfin-install-root.sh write                 # from TWRP, erases Android userdata
+fastboot boot out/redfin.img
 ```
 
-`tools/flame-run.sh` is the loop underneath. It builds the payload and boot image, runs `fastboot boot`, waits for
-the run to end back in fastboot, boots TWRP, then pulls and decodes the kernel log. NOTES.md and HANDOFF.md
-("How to run things", "Tools") cover each step and the boot args.
+`tools/redfin-boot.sh NAME KERNEL [ARGS...]` is the one-shot version: packs kernel + ADT + boot args and
+`fastboot boot`s it. `tools/redfin-install-root.sh` verifies every GiB after writing;
+`tools/retweak-root.sh` re-applies the root tweaks without rebuilding. NOTES.md, HANDOFF.md and
+`docs/redfin/` cover each step and the boot args.
 
 ## Credits
 
