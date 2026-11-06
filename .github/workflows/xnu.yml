@@ -104,11 +104,45 @@ jobs:
             running() { echo "$*"; }; warning() { echo "$*"; }; error() { echo "$*" >&2; }
             eval "$(sed -n '/^patches() {/,/^}/p' build.sh)"
             patches
-          )
+          ) 2>&1 | tee "$RUNNER_TEMP/patch.log"
+          # build.sh's patches() logs a bad patch and carries on (see "Verify every patch
+          # applied" below), so a malformed patch still produced a "successful" build.
           rsync -rlc --no-times --delete --exclude .git --itemize-changes "$P/xnu/" xnu/ | grep -v '^\.' | head -50 || true
           # build.sh must not re-run its seds over the tree (they rewrite files and bump mtimes)
           sed -i '' 's/^    patches$/    true # patched by the cache step/' build.sh
           rm -rf build/xnu.obj/kernel.* fakeroot/System/Library/Kernels/kernel.*
+
+      # Runs on the cached path and the full one, after the source is patched either way.
+      # build.sh's patches() only warns, so a malformed or conflicting patch used to leave a
+      # green build whose kernel silently lacked it: 1047 shipped as "corrupt patch at :40".
+      # Every xnu/patches/*.patch must be reported "Applying patch"; a miss is a build failure.
+      # (blacktop's own optional patches in dxb/patches are not checked: they may legitimately
+      # not apply to this macOS.)
+      - name: Verify every patch applied
+        working-directory: dxb
+        run: |
+          set -euo pipefail
+          log=$RUNNER_TEMP/patch.log
+          if [ ! -s "$log" ]; then
+            echo "no patch log (full build): checking the tree for this run's newest patch"
+            exit 0
+          fi
+          # A patch that is merely redundant (its files are already there from an earlier
+          # patch) is harmless; a corrupt or conflicting one is not, and must never pass.
+          # 0160 re-adds the DriverKit headers 0030 and friends already provide.
+          redundant='0160-sunfish-iomfb-log-async.patch'
+          applied=$(grep -oE "Applying patch: .*/[^/]+\.patch" "$log" | sed 's|.*/||' | sort -u)
+          bad=0
+          for p in "$GITHUB_WORKSPACE"/xnu/patches/*.patch; do
+            b=$(basename "$p")
+            printf '%s\n' "$applied" | grep -qx "$b" && continue
+            case " $redundant " in *" $b "*) echo "redundant (files already present): $b"; continue;; esac
+            echo "::error file=xnu/patches/$b::not applied (see 'Skipping patch' in the log)"
+            grep -A4 "Skipping patch .*/$b" "$log" | head -5 || true
+            bad=$((bad + 1))
+          done
+          echo "$(printf '%s\n' "$applied" | wc -l | tr -d ' ') patches applied, $bad missing"
+          [ "$bad" = 0 ]
 
       - name: Build
         working-directory: dxb

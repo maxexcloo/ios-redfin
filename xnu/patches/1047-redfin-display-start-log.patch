@@ -1,34 +1,30 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Rory Axton <roryaxton@gmail.com>
-Date: Fri, 6 Nov 2026 16:05:00 +0000
 Subject: [PATCH] 1047 redfin: AppleCLCD says why it did not start
 
-The one silent path out of AppleCLCD::start() is the provider's start,
-and a boot with no "SWEET FB:" line at all cannot tell which of the two it
-was: the display node never matched, or it matched and its provider failed.
-Both look identical in the klog — no line. Log the provider failure and
-whether the display node was reached at all, so a dead present path names
-itself instead of needing a guess.
+The one silent path out of AppleCLCD::start() is the provider's start, and a
+boot with no "SWEET FB:" line at all cannot tell which of the two it was: the
+'sweet,display' node never matched, or it matched and its provider failed.
+Both look identical in the klog - no line. Log the match and the failure, so a
+dead present path names itself instead of needing a guess.
 
-Boot klog gains, on the failing boots only:
-  "SWEET FB: AppleCLCD::start: provider start failed (...)"  provider did not start
-  "SWEET FB: no boot framebuffer ..."                        already there; PE console empty
-The healthy path is unchanged: it still logs "SWEET FB: AppleCLCD WxH stride ...".
+A klog with the display path dead now says one of:
+  "SWEET FB: AppleCLCD::start: display node matched (provider present)"
+    then "SWEET FB: AppleCLCD::start: provider start failed"  provider did not start
+    or "SWEET FB: no boot framebuffer ..."                    PE console empty
+and nothing at all still means the config table never matched the node.
+Healthy boots are unchanged: "SWEET FB: AppleCLCD WxH stride ..." as before.
 ---
- iokit/Kernel/arm/SweetFramebuffer.cpp | 8 +++++++-
- 1 file changed, 7 insertions(+), 1 deletion(-)
-
 diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+index 2c96689..f761a45 100644
 --- a/iokit/Kernel/arm/SweetFramebuffer.cpp
 +++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
-@@ -191,6 +191,13 @@ AppleCLCD::start(IOService *provider)
+@@ -769,7 +769,15 @@ AppleCLCD::start(IOService *provider)
  {
  	PE_Video video;
  
 +	/*
-+	 * Reaching here means the 'sweet,display' node matched. Without this line a klog with
-+	 * no "SWEET FB:" at all is ambiguous: node never matched, or matched and the provider
-+	 * (SweetPlatformExpert's nub) failed to start. The second case used to be silent.
++	 * Reaching here means the 'sweet,display' node matched. Without this
++	 * line a klog with no "SWEET FB:" at all is ambiguous: the node never
++	 * matched, or it matched and its provider did not start.
 +	 */
 +	IOLog("SWEET FB: AppleCLCD::start: display node matched (provider %s)\n",
 +	    provider != NULL ? "present" : "NULL");
