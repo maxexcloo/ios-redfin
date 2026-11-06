@@ -8,6 +8,12 @@ What works now is in [README.md](README.md). [HANDOFF.md](HANDOFF.md) is the eng
 first: every boot, what broke and why. Paths under `work/`, `logs/`, `backup/`, `dtb/`, `stock/`,
 `downloads/`, `images/` and `research/` in either file are local and not in git (see the README).
 
+**redfin (Pixel 5) display, 2026-11-06:** read
+[docs/redfin/STATUS-2026-11-06-display.md](docs/redfin/STATUS-2026-11-06-display.md). The display path
+does **not** need the GPU (`p disp` says on, panel scans at 89.9 Hz with `sweetgpu=0`); the stall is in
+userspace. That file also lists the other ports and the two "absent log line" mistakes that produced
+the earlier wrong diagnosis.
+
 ## Test loop (no buttons, no screen)
 
 1. Phone in fastboot (`adb reboot bootloader` from TWRP).

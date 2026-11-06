@@ -63,9 +63,74 @@ all threads of both processes sit in `TH_WAIT`, including
 Nothing is stuck and nothing is spinning: CoreAnimation painted once (the
 `swap 3` above) and was never asked for another frame.
 
-So the open question is **why CoreAnimation stops after its first frame**, not
-"how does the panel get a picture". It is above the kernel; spending time on
-the GPU/Metal chain will not move it.
+### The timing that reframes it
+
+That single frame was **not** caused by the `p scanout 0` before it.
+Reconstructed from both boots:
+
+| Boot | Args | First frame (`p swapdone` > 0) |
+|---|---|---|
+| `r-k6` | `sweetscanout=2`, console on | **t = 1503 s** (~25 min) |
+| `r-k7` | `sweetscanout=0 sweetfb_noconsole=1` | still `0` at t = 582 s |
+
+`SWEET FB: swap 3 ...` landed within a second of the command by coincidence: it
+was the first frame iOS had produced after ~25 minutes of booting. So this is
+not a dead present path and not a scanout regression — it is an extremely slow
+first boot that eventually paints once.
+
+`docs/redfin/port-plan.md` records the same shape: *"`r3` hangs after
+SpringBoard/backboardd start (console stays up)"*. ios-sweet documents a **4-5
+minute** first boot on an 84-patch tree; ours has 277.
+
+### Two inference errors made here, worth not repeating
+
+1. `SWEET FB: 5s` never appearing looked like a dead vsync timer. It is not:
+   `AppleCLCD::statLine()` returns early when `swaps == 0 && shown == 0`, so a
+   boot with no frames prints nothing by design.
+2. The booted kernel was assumed not to be rk5a because some 5 s reporters were
+   silent. The payload *is* rk5a (a prefix of
+   `xnu/out-rk5a/kernel.development.sweet`); the reporters were silent for the
+   same reason as (1).
+
+Both are the same mistake: treating an absent log line as evidence. On this
+port, assert from a positive probe (`p <cmd>` reply, a register read, a
+`/dev/pmem` dump) rather than from silence.
+
+So the open question is **why first boot is so slow / where it stalls**, not
+"how does the panel get a picture". It is above the kernel; the GPU/Metal chain
+will not move it.
+
+### Same-SoC reference: YinCQL/UniXNU-picasso
+
+`https://github.com/YinCQL/UniXNU-picasso` — Redmi K30 5G (picasso, **SM7250**),
+default branch `feat/ios16-gpu`, same iPhone X / iOS 16.7.16 (`20H392`) target.
+Its status is the closest independent data point for this SoC:
+
+> *"original early userspace runs; service startup is still incomplete... a
+> usable SpringBoard display and persistent Data are not established."*
+
+`docs/backboard-watchdog-investigation.md` there reports:
+
+> *"userspace watchdog timeout: no successful checkins from backboardd... 382
+> seconds without a successful backboardd checkin. audiomxd and CommCenter also
+> have no successful checkins; logd, thermalmonitord, runningboardd and configd
+> have recent checkins."*
+
+and `docs/memory-pressure-investigation.md` a VM-page shortage that kills system
+services, then UFS read timeouts and SIGBUS exits.
+
+Two consequences for redfin:
+
+- Their healthy set (`logd`, `runningboardd`, `configd`) versus unhealthy
+  (`backboardd`, `audiomxd`, `CommCenter`) is a pattern worth testing here. Ours
+  differs: `wdt_test=no_user_checkin` disables the supervisor, so the same stall
+  would be silent rather than a reboot — which is what we see.
+- If their cause is memory pressure, a 32 GiB HFS+ root with the 4 MiB log ring
+  at the tail on a RAM-only boot is a plausible contributor. Their Data volume
+  runs **in RAM**; ours does not.
+
+Their display path is UEFI/GOP, not our shim + SDE, so the display register work
+does not transfer. The userspace diagnosis does.
 
 Things already ruled out:
 
@@ -160,14 +225,66 @@ patch 147's answer).
 
 ## Next
 
-1. Boot `out/r-k7.img`. Does a real UI appear with the console muted and
-   scanout pinned off? That separates "kernel can present" from "CA stopped".
-2. If yes, the regression is 1046's auto scanout (`sweetscanout=2`) and the
-   fix is in that auto-on path, not the GPU.
-3. If no, CoreAnimation stopped after one frame. Look at what asks it for the
-   next frame: the vsync notification path (IOMFB notify type 5), and whether
-   backboardd's display thread ever wakes. `p prof start backboardd 100 2 24 100`
-   with `--all` shows whether it gets off-CPU samples only.
+1. Boot `out/r-k7.img` and **let it run past 25 minutes** before concluding
+   anything. The only frame ever seen arrived at 25 min on `r-k6`.
+2. If a UI appears, the non-blockers are confirmed and the remaining work is
+   speed, not bring-up.
+3. If not, read `backboard-watchdog-investigation.md` and
+   `memory-pressure-investigation.md` in YinCQL/UniXNU-picasso, then check
+   whether `logd`, `runningboardd` and `configd` are healthy here while
+   `backboardd` is not (`p prof start NAME 100 2 24 100 --all` reveals on- vs
+   off-CPU samples, but not stacks — the profiler records thread state only).
 4. Do **not** start with the GPU/Metal chain. `SweetMetal2.bundle` builds
-   (`builds-metal2`, source `72e9730` = rk5a's r70) and the firmware is ready,
-   but no measurement above points at it.
+   (`builds-metal2`, source `72e9730` = rk5a's r70) and the firmware is in
+   `fw-redfin/`, but no measurement above points at it.
+
+## Other ports worth reading (reference, gathered 2026-11-06)
+
+Grouped by relevance to redfin. Most of these target other phones; they are
+recorded because the *methods* transfer even when the hardware does not.
+
+**Exact SoC (SM7250 / Adreno 620)**
+
+- <https://github.com/YinCQL/UniXNU-picasso> — Redmi K30 5G, branch
+  `feat/ios16-gpu`, same iPhone X / iOS 16.7.16 userland. Userspace stalls at
+  service start; documents backboardd watchdog checkins and VM-page shortage.
+  **The single most relevant port.** Boots via UEFI/GOP, not our shim.
+
+**Same board family / Adreno 618-620 class**
+
+- <https://github.com/dipa-studio/ios-sweet> — the origin of this tree
+  (Redmi Note 10 Pro, SM7150). Reaches the home screen **CPU-only, no GPU
+  driver**, first boot 4-5 min. 84 patches versus our 277.
+- <https://github.com/edi194/ios-fajita> — OnePlus 6T (SDM845), based on
+  ios-sweet, active.
+- <https://github.com/seshubonn/ios-karna> — POCO X3 (SM7150-AC, Adreno 618).
+- <https://github.com/TigerShota/ios-sweet> — Redmi Note 9 Pro 5G (gauguin),
+  reaches SpringBoard UI, touch working, CPU rendering.
+- <https://github.com/DC28088/ios-sweet> — Redmi Note 10 Pro; has a
+  `codex/native-adreno-metal` branch.
+- <https://github.com/turgayasuk-sketch/ios-topaz> — Redmi Note 12, lock screen
+  in ~3 min via **direct MDP scanout, no GPU compositor** — the same strategy as
+  our patch 0975-0989, worth diffing against ours.
+
+**Other SoCs, useful for method**
+
+- <https://github.com/oosexgang/hackios-xnu-kernel> — HackiOS kernel (APSL 2.0),
+  origin of our Apple80211/wifid and `redwood_*` audio patches.
+- <https://github.com/oosexgang/hackios-xnu-userland> — MIT, `phone/audio/`.
+- <https://github.com/UniXNU/UniXNU> — NativeMetal, NativeAdreno, the Mesa
+  patch set; source of `phone/metal2/`.
+- <https://github.com/steelbrain/metal2vulkan> — the Vulkan-on-Metal bridge.
+- <https://github.com/Ken-u/MaliMetal> — Mali Metal stack that presents frames
+  (PanVK + metal2vulkan on RK3588).
+- <https://github.com/oosexgang/hakios-mt6768> — MediaTek HakiOS; boot chain in
+  `boot_a` with iOS in an `xnusys` partition, touch firmware loaded before XNU.
+
+**Caveats**
+
+- Fork counts are misleading: ios-sweet shows 863 forks, nearly all renamed
+  clones with zero changes. The substantive ones are DC28088, TigerShota,
+  seshubonn, TigerShota, `limonetexd` (whose README says "99% vibe coded" —
+  treat its present/ring claims as unverified) and ios-sapphire.
+- `DenialOfGravity/ios-flame` is 404 now; flame history survives in this tree.
+- Verify a repo's *actual* branch before trusting its description: several
+  repos' default branch is not the one advertised in their README.
