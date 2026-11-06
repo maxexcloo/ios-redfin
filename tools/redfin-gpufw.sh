@@ -30,7 +30,7 @@ mkdir -p "$OUT"
 
 # 1. The outer factory zip holds image-redfin-*.zip; that holds vendor.img. 7zz extracts just
 #    that one member, and the vendor.img inside it, so nothing else is written.
-INNER=$(7zz l -ba "$FACTORY" | awk '$NF ~ /^image-.*\.zip$/ {print $NF; exit}')
+INNER=$(7zz l -ba "$FACTORY" | awk '{n=$NF; sub(".*/","",n); if (n ~ /^image-.*\.zip$/) {print $NF; exit}}')
 [ -n "$INNER" ] || { echo "$FACTORY: no image-*.zip inside (is this the factory zip?)" >&2; exit 1; }
 echo "factory image: $INNER"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/redfin-gpufw.XXXXXX")
@@ -77,11 +77,29 @@ done
 	echo "$miss firmware file(s) not found in vendor.img" >&2; exit 1
 }
 
-# 3. a620_zap.mdt is a flash descriptor that must name b02: it is the only loadable segment, and
-#    sweet_gpu.c puts it at pil_gpu_region's start. A mismatched pair fails the zap silently.
-if ! LC_ALL=C grep -qa b02 "$OUT/a620_zap.mdt"; then
-	echo "warning: a620_zap.mdt does not name b02, but the kernel loads mdt + b02" >&2
-fi
+# 3. a620_zap.mdt is a header-only ELF: its segments' bytes are the separate .bNN files.
+#    The kernel loads the mdt for the program headers and b02 for the one PT_LOAD, so the
+#    check is structural: exactly one PT_LOAD, and b02 must be exactly its filesz.
+python3 - "$OUT" <<'PY' || exit 1
+import struct, sys
+d = open(sys.argv[1] + '/a620_zap.mdt', 'rb').read()
+b02 = open(sys.argv[1] + '/a620_zap.b02', 'rb').read()
+if d[:4] != b'\x7fELF' or d[4] != 1:
+    sys.exit('a620_zap.mdt: not a 32-bit LE ELF')
+phoff, = struct.unpack_from('<I', d, 0x1c)
+phentsize, phnum = struct.unpack_from('<HH', d, 0x2a)
+loads = []
+for i in range(phnum):
+    t, off, va, pa, fsz = struct.unpack_from('<IIIII', d, phoff + i * phentsize)
+    if t == 1:
+        loads.append((pa, fsz))
+if len(loads) != 1:
+    sys.exit('a620_zap.mdt: %d PT_LOAD segments, the kernel loads exactly one (b02)' % len(loads))
+pa, fsz = loads[0]
+if fsz != len(b02):
+    sys.exit('a620_zap.b02 is %d bytes but the mdt PT_LOAD is %d' % (len(b02), fsz))
+print('zap: 1 PT_LOAD at paddr 0x%x, %d bytes = a620_zap.b02' % (pa, fsz))
+PY
 
 echo
 echo "$(ls "$OUT"/a650_* "$OUT"/a620_* | wc -l | tr -d ' ') files in ${OUT}/"
