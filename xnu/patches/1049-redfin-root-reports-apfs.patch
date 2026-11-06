@@ -1,0 +1,61 @@
+--- a/bsd/vfs/vfs_syscalls.c
++++ b/bsd/vfs/vfs_syscalls.c
+@@ -3407,11 +3407,32 @@
+ 	return EOPNOTSUPP;
+ }
+ #endif /* QUOTA */
++
++/*
++ * redfin (1049): iOS 16's boot expects its data volume to be APFS. The root here is
++ * an HFS+ image in userdata, so statfs("/") says "hfs" - the one piece of the
++ * known-good phone's state that lives outside the tree (its launchd job
++ * org.iosonpixel.fstypeovr did the same from userland). Report "apfs" for the root
++ * mount: f_fstypename is the only field that changes.
++ */
++static struct vfsstatfs *
++sweet_root_as_apfs(struct mount *mp, struct vfsstatfs *copy)
++{
++	struct vfsstatfs *sp = &mp->mnt_vfsstat;
++
++	if ((mp->mnt_flag & MNT_ROOTFS) == 0 || strcmp(sp->f_fstypename, "hfs") != 0) {
++		return sp;
++	}
++	*copy = *sp;
++	strlcpy(copy->f_fstypename, "apfs", sizeof(copy->f_fstypename));
++	return copy;
++}
+ 
+ static int
+ statfs_internal(proc_t p, struct mount *mp, user_addr_t bufp)
+ {
+ 	int error;
++	struct vfsstatfs copy;
+ 	vfs_context_t ctx = vfs_context_current();
+ 
+ #if CONFIG_MACF
+@@ -3426,7 +3447,8 @@
+ 		return error;
+ 	}
+ 
+-	return munge_statfs(mp, &mp->mnt_vfsstat, bufp, NULL, IS_64BIT_PROCESS(p), TRUE);
++	return munge_statfs(mp, sweet_root_as_apfs(mp, &copy), bufp, NULL,
++	    IS_64BIT_PROCESS(p), TRUE);
+ }
+ 
+ /*
+@@ -3664,6 +3686,7 @@
+ {
+ 	struct getfsstat_struct *fstp = (struct getfsstat_struct *)arg;
+ 	struct vfsstatfs *sp;
++	struct vfsstatfs copy;
+ 	int error, my_size;
+ 	vfs_context_t ctx = vfs_context_current();
+ 
+@@ -3688,6 +3711,7 @@
+ 			return VFS_RETURNED;
+ 		}
+ 
++		sp = sweet_root_as_apfs(mp, &copy);
+ 		/*
+ 		 * Need to handle LP64 version of struct statfs
+ 		 */

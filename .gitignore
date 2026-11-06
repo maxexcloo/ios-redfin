@@ -32,3 +32,4 @@ recon/
 # devices/<dev>/pull-firmware.sh output: the vendor's firmware, never committed
 fw-redfin/
 fw-*/
+out/

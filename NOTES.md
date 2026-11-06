@@ -372,6 +372,12 @@ all upstream patches. Kernels "0151"/"0152" in the logs = 0901/0902.
 - 1047 `AppleCLCD::start` says why it did not start: reaching it logs `SWEET FB: AppleCLCD::start: display node matched`, and a failed provider start logs `provider start failed` (it was the one silent `return false`). A boot with no `SWEET FB:` line at all could not distinguish "the `sweet,display` node never matched" from "matched, provider did not start". Healthy boots are unchanged.
 
 SweetMetal2 bridge patches (phone/metal2/bridge/patches, applied in name order onto metal2vulkan 720ef1ce):
+- 1049 statfs of the root mount says `apfs`, not `hfs`: iOS 16's boot expects its data volume to be APFS and the
+  known-good phone faked this from userland only (launchd job `org.iosonpixel.fstypeovr`, in no branch of git).
+  `sweet_root_as_apfs()` in bsd/vfs/vfs_syscalls.c: `statfs`, `fstatfs`, `statfs64` and `getfsstat` report
+  `f_fstypename` "apfs" for the mount with MNT_ROOTFS whose type is hfs; every other field and every other
+  mount unchanged. No boot-arg (there is nothing to turn off: iOS either accepts the volume or it does not).
+
 - 0120 (was ws-y-rotfb4's bridge 0103) rotated-copy-skip-and-tiles: a rotated (landscape framebuffer) texture's copy in is skipped
   while nothing but its own copy back wrote the plane (`SWEET_M2V_ROT_SKIP=0` off), rotation kernel in 8x8 tiles, one-region copy
   back (`SWEET_M2V_ROT_ROWS=1` per row), `native-metal: rotated 5s` stats. Renumbered in ws-z-merge (ws-u-combo's 0103-0111 keep
