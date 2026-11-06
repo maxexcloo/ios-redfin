@@ -13,6 +13,7 @@
 #   FLIP=1         double-buffered present (0905 sweetfbflip=1)          e.g. r19b: PRESET=camera FLIP=1
 #   GPUFREQ=1..4   sweetgpufreq: 275 / 400 / 500 (default 3) / 625 MHz    e.g. r19c: PRESET=camera GPUFREQ=4
 #   NOBOOT=1       build work/boot/NAME.img only (no fastboot)
+#   GPUFW=DIR      Adreno firmware for GPU>=1 (default fw-redfin/, tools/redfin-gpufw.sh)
 # Read the result from the klog: "present: 300 frames in N ms = F/s (single buffer|flip, gpufreq G); ... put off,
 # flips, late" (0942) and "5s: ... GPU busy" lines.
 set -euo pipefail
@@ -42,6 +43,17 @@ if [ "$GPU" -ge 1 ]; then
 	base=$(printf '%s\n' $base | grep -v -e '^sweetgpu=' -e '^sweetfb_thread=' -e '^sweetddr=' | tr '\n' ' ')
 	base="$base sweetgpu=1 sweetfb_thread=1 sweetddr=1"
 	[ "${FLIP:-0}" = 1 ] && base="$base sweetfbflip=1"
+	# The GPU is useless without its firmware: check before building, not on the phone.
+	GPUFW=${GPUFW:-fw-redfin}
+	missing=
+	for f in a650_gmu.bin a650_sqe.fw a620_zap.mdt a620_zap.b02; do
+		[ -s "$GPUFW/$f" ] || missing="$missing $f"
+	done
+	[ -z "$missing" ] || {
+		echo "GPU=$GPU needs Adreno firmware in $GPUFW/:$missing" >&2
+		echo "  tools/redfin-gpufw.sh FACTORY.zip   (see the header there)" >&2
+		exit 1
+	}
 fi
 if [ "$GPU" -ge 2 ]; then
 	base=$(printf '%s\n' $base | grep -v -e '^sweetmtl=' | tr '\n' ' ')
@@ -60,7 +72,9 @@ for a in "$@"; do
 done
 cmdline="$base $*"
 echo "$cmdline" > "$P/$name.cmdline"
-python3 -I tools/mkpayload.py "$kernel" "$P/redfin-hi.adt" "$P/$name.payload" --cmdline "$cmdline" --gpufw "${GPUFW:-/mnt/c/ClaudeProjects/iOS_Pixel5/ios-redfin-tree/ios-redfin/recon/fw}" >/dev/null
+GPUFWARG=
+[ -n "${GPUFW:-}" ] && [ "$GPU" -ge 1 ] && GPUFWARG="--gpufw $GPUFW"
+python3 -I tools/mkpayload.py "$kernel" "$P/redfin-hi.adt" "$P/$name.payload" --cmdline "$cmdline" $GPUFWARG >/dev/null
 shim/build.sh "$P/$name.payload" "$P/$name.img" >/dev/null
 if [ "${NOBOOT:-0}" = 1 ]; then
 	echo "$(date +%T) built $P/$name.img: $cmdline"
