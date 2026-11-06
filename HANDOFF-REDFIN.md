@@ -90,6 +90,26 @@ fastboot boot out/redfin-showlog.img      # read-only; shows the PREVIOUS boot's
 
 Film it. Or, if adb works, `tools/sweet-log-pull.sh out.txt`.
 
+## Correction (2026-11-06, later): the GPU is NOT the blocker
+
+`docs/redfin/STATUS-2026-11-06-display.md` supersedes the section below. Measured on a
+live boot with `sweetgpu=0`: `p disp` says display on with scanout direct, `p fc` says
+the panel scans at 89.9 Hz, and `p scanout 0` produced a real 1125x2436 frame
+(`SWEET FB: swap 3 layer 0 surface 3`). The display path does not need the GPU.
+
+The "zero display lines" this section is built on was a logging bug: `sweet_log_copy()`
+advanced its cursor before `sock_send()`, so every boot backlog chunk was discarded while
+the host address did not yet exist (patch 1048 fixes it). A malformed patch 1047 was also
+silently dropped by CI, which is now a build failure.
+
+The real symptom is `p swapdone` = `swap done 0, ticks 0`: CoreAnimation painted once and
+was never asked again, with every backboardd and SpringBoard thread in `TH_WAIT`. That is
+above the kernel. Also note `sweetscanout=2` is newer than upstream's last known-good
+GPU-off display (`docs/redfin/port-plan.md`, "Touch works": `sweetgpu=0`, no
+`sweetscanout`), and the same doc records `r3` hanging when display args changed.
+
+The Metal chain below is still worth having for fit-scale quality, but do not start there.
+
 ## Next: the GPU/Metal chain (this is what unblocks the display)
 
 1. **Fix the metal2 CI on the fork.** `.github/workflows/metal2.yml` is `runs-on: macos-14`,
