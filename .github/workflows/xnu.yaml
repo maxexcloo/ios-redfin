@@ -153,7 +153,7 @@ jobs:
           bad=0
           for p in "$GITHUB_WORKSPACE"/xnu/patches/*.patch; do
             b=$(basename "$p")
-            printf '%s\n' "$applied" | grep -qx "$b" && continue
+            grep -Fxq "$b" <<< "$applied" && continue
             case " $redundant " in *" $b "*) echo "redundant (files already present): $b"; continue;; esac
             echo "::error file=xnu/patches/$b::not applied (see 'Skipping patch' in the log)"
             grep -A4 "Skipping patch .*/$b" "$log" | head -5 || true
