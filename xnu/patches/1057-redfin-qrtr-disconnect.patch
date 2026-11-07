@@ -1,0 +1,125 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Max Schaefer <max@excloo.com>
+Subject: [PATCH] Propagate ADSP disconnects to QRTR clients
+
+A fatal DSP already marks fastrpc_dsp_gone and wakes FastRPC clients, but
+QRTR readers keep seeing EAGAIN and lookup may return stale SNS servers.
+An otherwise successful finite sensor probe can consequently hide a DSP
+failure. Reuse that same state to return ECONNRESET from QRTR lookup and
+writes, and from reads after their already-queued datagrams are drained.
+
+Wake every open QRTR port's existing sleeper and selector when the DSP is
+marked gone. Read readiness includes that state, and the read-side check
+uses the same qport_lock as sleep/select registration, avoiding a missed
+wake. FastRPC and QRTR locks are never nested by the notification hook.
+Skip close-time DEL_CLIENT transmission once the DSP is gone.
+
+This QRTR endpoint is exclusively the ADSP GLINK channel (not the modem
+transport). Hide stale entries from the readiness sysctl while gone,
+leave the service table untouched and preserve its existing restart
+handling; no new ABI, debug interface, data-silence timeout or
+sensor/power policy is introduced. Quiet live on-change sensors remain
+valid. Existing GLINK/restart handling resets the shared gone state.
+
+Prepared against1055; independent of1056's SMP sleep-state correction.
+Native build and live stable/fatal validation remain required.
+
+---
+--- a/bsd/dev/sweet_adsp.c
++++ b/bsd/dev/sweet_adsp.c
+@@ -3316,6 +3316,8 @@
+ 	}
+ }
+ 
++static void qport_dsp_down(void);
++
+ /* The DSP has given up, or the link is down: whoever waits for an answer hears ECONNRESET. */
+ static void
+ fastrpc_dsp_down(const char *why)
+@@ -3325,6 +3327,7 @@
+ 	wakeup(&fastrpc.head);
+ 	selwakeup(&fastrpc.select);
+ 	lck_mtx_unlock(&fastrpc_lock);
++	qport_dsp_down();
+ 	if (fastrpc_mode != 0) {
+ 		printf("SWEET FASTRPC: the DSP is gone (%s): %u messages sent, %u answers, %u dropped, %u refused; the last message: "
+ 		    "handle %u scalars %#x (method %u) ctx %#llx addr %#llx\n", why, fastrpc.sent, fastrpc.answered, fastrpc.dropped,
+@@ -3805,6 +3808,20 @@
+ } qport[QRTR_PORTS];
+ static int qport_major = -1;
+ 
++/* Pair the existing DSP-gone flag with the QRTR read/select wait lock. */
++static void
++qport_dsp_down(void)
++{
++	lck_mtx_lock(&qport_lock);
++	for (unsigned n = 0; n < QRTR_PORTS; n++) {
++		if (qport[n].open) {
++			wakeup(&qport[n]);
++			selwakeup(&qport[n].select);
++		}
++	}
++	lck_mtx_unlock(&qport_lock);
++}
++
+ /* A datagram from the DSP to a port of ours: queued for its reader. From the link's thread. */
+ static bool
+ qrtr_deliver(const struct qrtr_header *header, const uint8_t *data, uint32_t length)
+@@ -3903,7 +3920,7 @@
+ 		next = datagram->next;
+ 		kfree_data(datagram, sizeof(*datagram) + datagram->length);
+ 	}
+-	if (glink.channel[CHANNEL_QRTR].open && qrtr_peer != 0) {
++	if (!fastrpc_dsp_gone && glink.channel[CHANNEL_QRTR].open && qrtr_peer != 0) {
+ 		qrtr_out_packet(QRTR_DEL_CLIENT, QRTR_CONTROL, qrtr_peer, QRTR_CONTROL, &bye, sizeof(bye));
+ 	}
+ 	printf("SWEET QRTR: port %#x closed (pid %d): %u datagrams sent, %u received, %u dropped\n", QRTR_PORT_BASE + n,
+@@ -3928,6 +3945,9 @@
+ 	if ((error = uiomove((caddr_t)address, sizeof(address), uio)) != 0) {
+ 		return error;
+ 	}
++	if (fastrpc_dsp_gone) {
++		return ECONNRESET;
++	}
+ 	if (!glink.channel[CHANNEL_QRTR].open || qrtr_peer == 0) {
+ 		return ENOTCONN;
+ 	}
+@@ -3965,6 +3985,10 @@
+ 	}
+ 	lck_mtx_lock(&qport_lock);
+ 	while ((datagram = qport[n].first) == NULL) {
++		if (fastrpc_dsp_gone) {
++			lck_mtx_unlock(&qport_lock);
++			return ECONNRESET;
++		}
+ 		if (ioflag & IO_NDELAY) {
+ 			lck_mtx_unlock(&qport_lock);
+ 			return EWOULDBLOCK;
+@@ -3997,7 +4021,7 @@
+ 
+ 	if (which == FREAD && n < QRTR_PORTS) {
+ 		lck_mtx_lock(&qport_lock);
+-		ready = qport[n].first != NULL;
++		ready = qport[n].first != NULL || fastrpc_dsp_gone;
+ 		if (!ready) {
+ 			selrecord(p, &qport[n].select, wql);
+ 		}
+@@ -4013,6 +4037,9 @@
+ 
+ 	if (cmd != QRTR_LOOKUP) {
+ 		return ENOTTY;
++	}
++	if (fastrpc_dsp_gone) {
++		return ECONNRESET;
+ 	}
+ 	lookup->node = lookup->port = 0;
+ 	for (unsigned i = 0; i < sizeof(qrtr_servers) / sizeof(qrtr_servers[0]); i++) {
+@@ -4067,7 +4094,7 @@
+ 
+ 	text[0] = 0;
+ 	for (unsigned i = 0; i < sizeof(qrtr_servers) / sizeof(qrtr_servers[0]) && at < (int)sizeof(text) - 28; i++) {
+-		if (qrtr_servers[i].there) {
++		if (!fastrpc_dsp_gone && qrtr_servers[i].there) {
+ 			at += snprintf(text + at, sizeof(text) - (size_t)at, "%s%u:%u@%u:%u", at ? "," : "", qrtr_servers[i].service,
+ 			    qrtr_servers[i].instance >> 8, qrtr_servers[i].node, qrtr_servers[i].port);
+ 		}

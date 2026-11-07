@@ -23,6 +23,14 @@
 #include "sensor.h"
 #include "../wifi/qmi.h"
 
+/* Exercise the real CLI run loop with only service discovery mocked. */
+static int cli_lookup(int fd, uint32_t service, uint32_t *node, uint32_t *port);
+#define rqrtr_lookup cli_lookup
+#define main sensd_cli_main
+#include "sensd.c"
+#undef main
+#undef rqrtr_lookup
+
 static int failures;
 #define CHECK(c) do { if (!(c)) { printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); failures++; } } while (0)
 #define NEAR(a, b) (fabsf((float)(a) - (float)(b)) < 1e-4f)
@@ -354,6 +362,56 @@ static void test_exchange(void)
 	}
 }
 
+/* ---- finite CLI streams: service loss is distinct from a quiet sensor ---- */
+static int lookup_case, lookup_calls;
+static int cli_lookup(int fd, uint32_t service, uint32_t *node, uint32_t *port)
+{
+	(void)fd;
+	CHECK(service == SNS_QMI_SERVICE);
+	lookup_calls++;
+	if ((lookup_case == 1 || lookup_case == 6) && lookup_calls > 1) {
+		errno = lookup_case == 6 ? ECONNRESET : ENOENT;
+		return -1;
+	}
+	if (lookup_case == 3 || lookup_case == 7) {
+		errno = ENOTTY;
+		return -1;
+	}
+	*node = 5;
+	*port = lookup_case == 2 && lookup_calls > 1 ? 10 : 9;
+	return 0;
+}
+
+static void test_cli_liveness(void)
+{
+	for (int scenario = 0; scenario < 8; scenario++) {
+		int sv[2];
+		CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0);
+		fcntl(sv[0], F_SETFL, O_NONBLOCK);
+		lookup_case = scenario == 5 ? 1 : scenario;
+		lookup_calls = 0;
+		opt.qrtr_fd = scenario == 3 ? sv[0] : -1;
+		opt.secs = 1;
+		opt.print = 0;
+		stop_flag = 0;
+		struct sensor s;
+		sensor_init(&s, sensor_kind_find("als"), sv[0], 5, 9);
+		s.active = 1;
+		s.hz = 0; /* A quiet on-change stream must succeed while its service remains. */
+		if (scenario == 4) {
+			close(sv[1]);
+			sv[1] = -1;
+		}
+		int rc = run(&s, 1, scenario == 5);
+		CHECK(rc == ((scenario == 1 || scenario == 2 || scenario == 4 || scenario == 5 || scenario == 6 || scenario == 7) ? -1 : 0));
+		CHECK(s.count == 0);
+		CHECK(lookup_calls > ((scenario == 4 || scenario == 7) ? 0 : 1));
+		close(sv[0]);
+		if (sv[1] >= 0)
+			close(sv[1]);
+	}
+}
+
 int main(void)
 {
 	setvbuf(stdout, NULL, _IOLBF, 0);
@@ -361,6 +419,7 @@ int main(void)
 	test_encoders();
 	test_decoders();
 	test_exchange();
+	test_cli_liveness();
 	printf("%s (%d failures)\n", failures ? "FAILED" : "all sensd host tests passed", failures);
 	return failures ? 1 : 0;
 }

@@ -1,0 +1,61 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Max Schaefer <max@excloo.com>
+Date: Sat, 07 Nov 2026 18:43:05 +1100
+Subject: [PATCH] 1056 redfin: use the Android ADSP awake bit
+
+The existing adsp_sleep=1 opt-in publishes the ADSP SMP2P sleepstate entry,
+but wrote bit 0 instead of bit 12. Google's Redbull driver defines
+PROC_AWAKE_ID 12, sets that bit at probe and after suspend, and clears it
+before suspend. The Lito device tree connects its sleepstate consumer to
+the ADSP's outbound entry (SMEM 429, inbound 443). Set the existing value to
+1u << 12 and make the activation log explicitly report 4096/bit 12.
+
+Keep adsp_sleep unset/0 as the default: master-kernel only. This changes
+no SoC metadata, firmware, rails, PMIC writes, sound, microphones, cameras
+or thermal protections. SMP2P publication order and doorbell are unchanged.
+
+Provenance (Google immutable Android13 Redbull sources):
+https://android.googlesource.com/kernel/msm/+/248fa42a73b230574e84535436c684b3e47a8515/drivers/soc/qcom/smp2p_sleepstate.c
+https://android.googlesource.com/kernel/msm-extra/devicetree/+/30211b25c711982716dd2b486bc9b2afe3fe16da/qcom/lito-smp2p.dtsi
+https://android.googlesource.com/kernel/msm-extra/devicetree/+/30211b25c711982716dd2b486bc9b2afe3fe16da/qcom/lito.dtsi
+
+The first Redfin sensor trial omitted adsp_sleep, delivered 85 contiguous
+accelerometer samples over 3.15 sensor seconds, then reported the public
+sar.cc:27:chre_utils fatal signature and lost the DSP. Registry enumeration
+had finished earlier. Linux SDM670 bring-up independently reports that
+initialising sleepstate prevents the same signature:
+https://www.mail-archive.com/linux-remoteproc%40vger.kernel.org/msg00850.html
+The wrong awake bit is established by source; this change fixing Redfin's
+DSP lifetime remains a hypothesis requiring a fresh controlled off/on
+trial with the same pristine served tree, listener and sensor requests.
+
+---
+--- a/bsd/dev/sweet_adsp.c
++++ b/bsd/dev/sweet_adsp.c
+@@ -173,7 +173,7 @@
+ /*
+  * 0950: adsp_sleep=1: our SMP2P item carries every entry Android's kernel makes in it (dt: the children of
+  * qcom,smp2p-adsp with qcom,smem-state-cells, in order), at Android's boot values: "master-kernel" 0,
+- * "sleepstate" 1 (smp2p-sleepstate: bit 0 = APPS awake, set at its probe), "rdbg" 0. adsp_sleep=0 (the
++ * "sleepstate" 4096 (smp2p-sleepstate: bit 12 = APPS awake, set at its probe), "rdbg" 0. adsp_sleep=0 (the
+  * default): "master-kernel" only, as before.
+  * adsp_qlog=1: every QRTR datagram on IPCRTR (both ways: header and the first 48 bytes) and every intent
+  * event of that channel logged, the first 200 lines, then one line per 100 datagrams.
+@@ -1692,7 +1692,7 @@
+ 		static const struct {
+ 			const char *name;
+ 			uint32_t value;
+-		} more[] = { { "sleepstate", 1 }, { "rdbg", 0 } };
++		} more[] = { { "sleepstate", 1u << 12 }, { "rdbg", 0 } };
+ 
+ 		for (unsigned e = 0; e < sizeof(more) / sizeof(more[0]); e++, entries++) {
+ 			bzero(name, sizeof(name));
+@@ -1702,7 +1702,7 @@
+ 			}
+ 			smem_poke(our_item + SMP2P_AT_VALUE(entries), more[e].value);
+ 		}
+-		printf("adsp: %u: adsp_sleep=1: our item also has \"sleepstate\" = 1 (APPS awake) and \"rdbg\" = 0, as Android's\n", step);
++		printf("adsp: %u: adsp_sleep=1: our item also has \"sleepstate\" = 4096 (APPS awake bit 12) and \"rdbg\" = 0, as Android's\n", step);
+ 	}
+ 	smem_poke(our_item + SMP2P_AT_COUNTS, 16 | entries << 16);
+ 	smem_poke(our_item + SMP2P_AT_VERSION, SMP2P_RESTART_ACKS << 8);

@@ -291,11 +291,34 @@ static int orient_clients_seen;
 
 static int run(struct sensor *ss, int n, int daemon)
 {
-	long t0 = sensor_now_ms(), last_print = t0, last_want = 0;
+	long t0 = sensor_now_ms(), last_print = t0, last_want = 0, last_service = t0 - 1000;
 	for (;;) {
 		long now = sensor_now_ms();
 		int handled = 0;
-		if (stop_flag || (opt.secs && now - t0 >= opt.secs * 1000L))
+		if (stop_flag)
+			return 0;
+		int done = opt.secs && now - t0 >= opt.secs * 1000L;
+		/* A quiet on-change sensor is valid; check its server, not its sample rate.
+		 * Also check at the deadline so a vanished service cannot produce a successful finite run. */
+		if (done || now - last_service >= 1000) {
+			last_service = now;
+			for (int i = 0; i < n; i++) {
+				if (ss[i].fd < 0)
+					continue;
+				uint32_t node, port;
+				if (rqrtr_lookup(ss[i].fd, SNS_QMI_SERVICE, &node, &port)) {
+					if (errno == ENOTTY && opt.qrtr_fd >= 0)
+						continue; /* --qrtr-fd host transports have no lookup ioctl. */
+					fprintf(stderr, "sensd: SNS service unavailable: %s\n", strerror(errno));
+					return -1;
+				}
+				if (node != ss[i].node || port != ss[i].port) {
+					fprintf(stderr, "sensd: SNS service changed: stream disconnected\n");
+					return -1;
+				}
+			}
+		}
+		if (done)
 			return 0;
 		for (int i = 0; i < n; i++) {
 			if (ss[i].fd < 0)

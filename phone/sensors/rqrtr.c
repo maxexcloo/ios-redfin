@@ -20,8 +20,12 @@ int rqrtr_open(void)
 int rqrtr_lookup(int fd, uint32_t service, uint32_t *node, uint32_t *port)
 {
 	struct rqrtr_lookup l = { service, 0, 0, 0 };
-	if (ioctl(fd, RQRTR_LOOKUP, &l) != 0 || (l.node == 0 && l.port == 0))
+	if (ioctl(fd, RQRTR_LOOKUP, &l) != 0)
 		return -1;
+	if (l.node == 0 && l.port == 0) {
+		errno = ENOENT;
+		return -1;
+	}
 	*node = l.node;
 	*port = l.port;
 	return 0;
