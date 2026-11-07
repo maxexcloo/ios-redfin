@@ -13,7 +13,7 @@ Experimental iOS 16.7.16 (`20H392`, iPhone X userland) on Google Pixel 5 (`redfi
 | Pacing | A colder scene-verified Settings run delivered 65.62 fps at 52.3°C, with frame gaps still reaching 43 ms. SweetFPS raises SpringBoard’s request to 90 without a demonstrated delivery improvement |
 | Brightness | Control Centre slider changes reach completed panel commands. Kernel 1055 enforces the cap across both request paths and restores the retained target when it rises. Luminance mapping and OEM battery-current estimates are provisional, not measured panel calibration |
 | Haptics | Direct requests, UIKit selection feedback and system vibration reach completed DRV2624 transactions. Kernel 1052 enforces the 1.5-second continuous-on limit and rest period; tactile quality still needs assessment |
-| Sensors | Corrected ADSP awake signalling sustained a 30-second accelerometer stream; a public CoreMotion client received 213 real callbacks over 7.96 seconds with no errors. Services remain disabled between trials; other sensors and long-term stability are unverified |
+| Sensors | Accelerometer data reaches public CoreMotion clients. A bounded daemon trial verified demand-controlled stop/restart and a 16-second inactive period without DSP failures. Services remain disabled between trials; other sensors and long-term stability are unverified |
 | Other hardware | Wi-Fi is disabled. Bluetooth shows Unavailable. Audio and cameras remain unverified here; upstream results are not local proof |
 | Limitations | Charging under iOS, reliable suspend, cellular, GPS, NFC, fingerprint, SEP and Apple services remain unavailable or unfinished; the security model is permissive |
 
