@@ -6,14 +6,23 @@ name: shim
 on:
   workflow_dispatch:
   push:
-    branches: [redfin]
-    paths: [.github/workflows/shim.yml, "shim/**"]
+    branches: [main]
+    paths: [.github/workflows/shim.yaml, "shim/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Toolchain
         run: |
@@ -31,7 +40,7 @@ jobs:
           bash shim/build.sh "" "$PWD/out/redfin-probe.img"
           python3 "$RUNNER_TEMP/mkbootimg/unpack_bootimg.py" --boot_img out/redfin-probe-safe.img --out "$RUNNER_TEMP/u" | head -8
           python3 "$RUNNER_TEMP/avb/avbtool.py" info_image --image out/redfin-probe-safe.img | head -6
-          (cd out && sha256sum *.img > SHA256SUMS && cat SHA256SUMS)
+          (cd out && sha256sum ./*.img > SHA256SUMS && cat SHA256SUMS)
 
       - uses: actions/upload-artifact@v4
         with:

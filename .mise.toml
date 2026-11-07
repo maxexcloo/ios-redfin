@@ -1,0 +1,8 @@
+[tools]
+actionlint = "latest"
+
+[tasks.build]
+run = "bash shim/build.sh"
+
+[tasks.check]
+run = "python3 tools/check.py"
