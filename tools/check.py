@@ -37,6 +37,7 @@ for suite in ['tools', 'tools-claude']:
     if result.returncode:
         sys.exit(result.stdout + result.stderr)
     print(f'{suite}: existing synthetic tests passed')
+subprocess.run(['sh', 'phone/wifi/test.sh'], cwd=ROOT, check=True)
 subprocess.run(['actionlint'], cwd=ROOT, check=True)
 subprocess.run(['git', 'diff', '--check'], cwd=ROOT, check=True)
-print('Host syntax, existing tests, patch structure, links and whitespace passed; no phone was accessed')
+print('Host syntax, synthetic and pd-mapper tests, patch structure, links and whitespace passed; no phone was accessed')

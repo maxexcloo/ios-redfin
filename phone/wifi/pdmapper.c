@@ -56,6 +56,7 @@ void pdmapper_handle(const struct qrtr_hdr *h, const uint8_t *d, uint32_t n)
 		qmi_get_u32(&m, 0x10, &offset);
 		/* domain_list[]: u8 count, then { u8 len + name, u32 instance, u8 valid, u32 data } */
 		uint8_t list[512];
+		list[0] = 0;
 		size_t o = 1;
 		uint16_t total = 0;
 		for (unsigned i = 0; i < sizeof(db) / sizeof(db[0]); i++) {
