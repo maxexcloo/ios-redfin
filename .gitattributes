@@ -1,0 +1,2 @@
+# Patch context contains a diff marker before original indentation and blank lines.
+xnu/patches/1053-redfin-backlight-property-types.patch whitespace=-blank-at-eol,-space-before-tab

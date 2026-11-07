@@ -1,0 +1,89 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Max Schaefer <max@excloo.com>
+Date: Sat, 07 Nov 2026 16:50:13 +1100
+Subject: [PATCH] Accept legacy CoreBrightness levels and correct the nits cap
+
+The opt-in backlight service accepts a panel DAC brightness but ignores
+normalised backlight-level requests. Prefer that fixed16.16 level when
+present and retain the existing brightness-only path. Publish the user
+maximum as four-byte fixed16.16 OSData rather than an ignored OSNumber.
+
+The property contracts are documented by MiniAppleARMBacklight.cpp in
+Evsio0n/instantnoodle-xnu at 4b3afed623664548bfb09aa8c3eb0afd6dccb5d1:
+https://github.com/Evsio0n/instantnoodle-xnu/blob/4b3afed623664548bfb09aa8c3eb0afd6dccb5d1/xnu/files/iokit/Kernel/MiniAppleARMBacklight.cpp
+
+Trace only the first 48 recognised brightness property types to establish
+which route this phone uses. Keep the existing panel limits, DCS worker
+and opt-in service; do not enable the new backlight architecture or invent
+current calibration. Build success alone does not establish slider control.
+
+---
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+index 5ae4ace..092a2b9 100644
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -35,6 +35,7 @@
+  * the first swap on (it still reaches the persistent log; panics draw).
+  */
+ #include "SweetSurface.h"
++#include <libkern/c++/OSData.h>
+ #include "SweetDisplayMask.h"
+ #include "SweetTrace.h"     /* 0994 */
+ 
+@@ -748,7 +749,7 @@ AppleARMBacklight::publishNits(uint32_t level)
+ 		} fixed[] = {
+ 			{ "MinNits", SWEET_BL_MIN_NITS }, { "MaxNits", SWEET_BL_MAX_NITS }, { "MaxNitsPanel", SWEET_BL_MAX_NITS },
+ 			{ "HardwareAccessibleMinNits", SWEET_BL_MIN_NITS }, { "HardwareAccessibleMaxNits", SWEET_BL_MAX_NITS },
+-			{ "user-accessible-max-nits", SWEET_BL_MAX_NITS }, { "digital-dimming-min-nits", SWEET_BL_MIN_NITS },
++			{ "digital-dimming-min-nits", SWEET_BL_MIN_NITS },
+ 			{ "brightness-nits-cap", SWEET_BL_MAX_NITS },
+ 			{ "DisplayPanelLuminanceMin", SWEET_BL_MIN_NITS }, { "DisplayPanelLuminanceMid", SWEET_BL_MAX_NITS / 2 },
+ 			{ "DisplayPanelLuminanceMax", SWEET_BL_MAX_NITS },
+@@ -758,6 +759,13 @@ AppleARMBacklight::publishNits(uint32_t level)
+ 		for (unsigned i = 0; i < sizeof(fixed) / sizeof(fixed[0]); i++) {
+ 			setProperty(fixed[i].key, (unsigned long long)fixed[i].value, 32);
+ 		}
++		/* CoreBrightness expects little-endian fixed16.16 OSData here, not OSNumber. */
++		uint32_t userMax = SWEET_BL_MAX_NITS << 16;
++		OSData *userData = OSData::withBytes(&userMax, sizeof(userMax));
++		if (userData != NULL) {
++			setProperty("user-accessible-max-nits", userData);
++		}
++		OSSafeReleaseNULL(userData);
+ 		fNitsDone = true;
+ 		IOLog("SWEET BL: 0973 nits published: %u..%u nits (sweetnits=0: off)\n", SWEET_BL_MIN_NITS, SWEET_BL_MAX_NITS);
+ 	}
+@@ -768,6 +776,33 @@ IOReturn
+ AppleARMBacklight::setProperties(OSObject *properties)
+ {
+ 	OSDictionary *d = OSDynamicCast(OSDictionary, properties);
++	if (d != NULL) {
++		/* Bounded public-property type trace; never serialize arbitrary client dictionaries. */
++		static uint32_t typeLogs;
++		static const char *keys[] = {
++			"DisplayBrightness", "backlight-level", "brightness", "brightness-nits", "brightness-nits-cap"
++		};
++		for (unsigned i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
++			OSObject *o = d->getObject(keys[i]);
++			if (o != NULL && typeLogs++ < 48) {
++				OSNumber *n = OSDynamicCast(OSNumber, o);
++				IOLog("SWEET BL: property %s type %s bits %u raw %llu\n", keys[i],
++				    o->getMetaClass()->getClassName(), n ? n->numberOfBits() : 0,
++				    n ? n->unsigned64BitValue() : 0);
++			}
++		}
++	}
++	/* Legacy only: no new-backlight-architecture or fabricated current calibration.
++	 * backlight-level is normalised fixed16.16, independent of panel DAC range. */
++	OSNumber *normal = d ? OSDynamicCast(OSNumber, d->getObject("backlight-level")) : NULL;
++	if (normal != NULL) {
++		uint64_t v = normal->unsigned64BitValue();
++		v = v > 65536 ? 65536 : v;
++		uint32_t level = SWEET_BL_MIN + (uint32_t)(v * (SWEET_BL_MAX - SWEET_BL_MIN) / 65536);
++		fFB->blSet(level);
++		publish(level);
++		return kIOReturnSuccess;
++	}
+ 	OSNumber *b = d ? OSDynamicCast(OSNumber, d->getObject("brightness")) : NULL;
+ 	if (b == NULL) {
+ 		return d ? kIOReturnSuccess : kIOReturnBadArgument;
