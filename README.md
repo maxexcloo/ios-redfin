@@ -4,14 +4,14 @@ Experimental iOS 16.7.16 (`20H392`, iPhone X userland) on Google Pixel 5 (`redfi
 
 ## Status
 
-**Unlock, Settings and touch work on this phone.** Metal with direct scanout is visibly smoother than CPU rendering, but measured scrolling remains about 29 fps; this is not yet a smooth or stable phone OS.
+**Unlock, Settings and touch work on this phone.** Metal with direct scanout is visibly smoother than CPU rendering. Scene-verified Settings scrolling delivered about 56 fps; other repeated-swipe workloads measured about 29 fps, with their starting scene unverified. This is not yet a consistently smooth or stable phone OS.
 
 | Area | Local Evidence & Remaining Work |
 | --- | --- |
 | Boot | Minimal ADT plus invalidated MobileGestalt capability cache fixes the SpringBoard boot stall; CPU fallback retained |
-| Rendering | Kernel 1051 passed CI; preserving recorded row pitch fixes striped plane, AirDrop and camera glyphs. Dead-fill mode 1 preserves text; A/B/B/A testing reintroduced missing characters in mode 2, so source defaults to 1 |
-| Pacing | Governor with touch boost remains about 29.45 fps; vsync phase 5000 alone measured 29.07 fps. SweetFPS rewrites SpringBoard’s 30 fps request to 90, but delivered scrolling remains 28.92 fps with diagnostic logging off; CA timer/heartbeat overrides did not remove the limit |
-| Other hardware | Wi-Fi, Bluetooth, audio, cameras and sensors are upstream results, unverified on this installation |
+| Rendering | Kernel 1051 passed CI; preserving recorded row pitch fixes striped plane, AirDrop and camera glyphs. Dead-fill mode 1 preserves text; A/B/B/A testing reintroduced missing characters in mode 2, so source defaults to 1. Selective fetcher-only ordering also loses Control Centre text and remains off |
+| Pacing | Settings scrolling delivered 56.12 fps with no scanout drops after checking the starting scene and cooling. Earlier repeated-swipe tests delivered about 29 fps but did not verify the scene. SweetFPS raises SpringBoard’s request to 90 without a demonstrated delivery improvement |
+| Other hardware | Wi-Fi and sensor services are disabled; their firmware/calibration inputs are not installed. Bluetooth shows Unavailable. Audio and cameras remain unverified here; upstream results are not local proof |
 | Limitations | Charging under iOS, reliable suspend, cellular, GPS, NFC, fingerprint, SEP and Apple services remain unavailable or unfinished; the security model is permissive |
 
 ## Build & Check
@@ -23,7 +23,7 @@ mise run check
 mise run build -- "$PWD/work/boot/working.payload" "$PWD/out/redfin.img"
 ```
 
-Checks cover host syntax, existing synthetic tests, patch structure, local documentation links, Actions lint and whitespace. The build calls the existing native LLVM `shim/build.sh`; consolidating it behind the siblings' common Python entrypoint is deferred. It packs a boot-v3 image with an LZ4 Image and unsigned AVB footer padded to 96 MiB. Neither task accesses a phone.
+Checks cover host syntax, synthetic tests, pd-mapper QMI replies, patch structure, local documentation links, Actions lint and whitespace. The QMI tests use a host C compiler with AddressSanitizer and UndefinedBehaviorSanitizer. The build calls the existing native LLVM `shim/build.sh`; consolidating it behind the siblings' common Python entrypoint is deferred. It packs a boot-v3 image with an LZ4 Image and unsigned AVB footer padded to 96 MiB. Neither task accesses a phone.
 
 `xnu/patches/` applies to XNU `8796.141.3` through blacktop/darwin-xnu-build. Phone tools and Metal also need Xcode's iOS SDK. The `xnu.yaml`, `metal2.yaml` and `userland.yaml` Actions workflows accept manual dispatches on `main`, for example `gh workflow run xnu.yaml --ref main`. Successful runs upload Actions artefacts; match their run revision to the intended source. A fresh clone must build or download its kernel.
 
