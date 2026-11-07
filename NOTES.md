@@ -371,6 +371,9 @@ all upstream patches. Kernels "0151"/"0152" in the logs = 0901/0902.
 - 1046 boot defaults = the live settings (cmdline full): `sweetscanout` absent = 2, now "slots + direct on by itself at the first slot-surface SwapEnd" (same sweet_scan_set as `p scanout 1`; display off/on as with the poke, 0989); 0 off, 1 on at start, 3 slots only (the old 2); `p scanout 0|1` live and disarms. Klog `SWEET SCANOUT: auto on (1046 ...)`. `kern.sweet_ui_bigcore` default 1 (was 0). No reboot timer: flamereboot default 0 (WDT pets forever), nothing else resets.
 - 1047 `AppleCLCD::start` says why it did not start: reaching it logs `SWEET FB: AppleCLCD::start: display node matched`, and a failed provider start logs `provider start failed` (it was the one silent `return false`). A boot with no `SWEET FB:` line at all could not distinguish "the `sweet,display` node never matched" from "matched, provider did not start". Healthy boots are unchanged.
 
+- 1050 imports upstream `ws-n-k1` / `eed2537` surface row preservation (upstream patch 1048, renumbered to avoid the local log-retention patch). `sweetsurfkeep=1` keeps recorded IOSurface pitches; default off for local comparison until live verification.
+- 1051 imports the same upstream commit's vsync-phase control (upstream patch 1049, renumbered to avoid the local APFS-reporting patch). `sweetvsyncphase=5000` uses the upstream promoted display-link phase; default off for local comparison until live verification.
+
 SweetMetal2 bridge patches (phone/metal2/bridge/patches, applied in name order onto metal2vulkan 720ef1ce):
 - 1049 statfs of the root mount says `apfs`, not `hfs`: iOS 16's boot expects its data volume to be APFS and the
   known-good phone faked this from userland only (launchd job `org.iosonpixel.fstypeovr`, in no branch of git).
