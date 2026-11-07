@@ -7,6 +7,9 @@
  * the time at about 46 pt: "1:52" spans 32-61 pt and sits half under the hole. Moving the time right by ~18 pt
  * (centre 64 pt) clears it even for "12:59" (40 pt wide); the notch area to its right is empty glass on the Pixel.
  *
+ * Native-canvas experiment: /var/local/sweetsb.n (exactly 100 bytes) selects the real Split1080 provider
+ * only for the main 360x780@3 screen (also transposed); absent classes/unsupported ABI retain UIKit selection.
+ *
  * Switch: a flag file whose SIZE is 100 + DX (pt; DX may be negative). Only stat() is used: app sandboxes allow
  * file-read-metadata but not reads of /var/local. Read once at load: restart SpringBoard / relaunch apps after a change.
  *   /var/local/sweetsb.m   DX added to the split visual providers' +leadingCenteringOffset (the leading region's
@@ -496,6 +499,64 @@ sb_hook_layout(void)
 	}
 }
 
+/* Public ReScale2 API pattern, independently implemented with this module's runtime hooks:
+ * SniperGER/ReScale2 29c36d25716ed9372da3d2447f2546d45fd44353, ReScaleUIKit/Tweak.xm.
+ * Provider choice is experimental: it does not alter screen geometry or hardware capabilities. */
+static bool
+sb_native_screen(id screen)
+{
+	if (![screen isKindOfClass:[UIScreen class]] || screen != [UIScreen mainScreen]) {
+		return false;
+	}
+	CGSize size = [(UIScreen *)screen bounds].size;
+	return fabs([(UIScreen *)screen scale] - 3.0) < 0.001 &&
+	       ((fabs(size.width - 360.0) < 0.001 && fabs(size.height - 780.0) < 0.001) ||
+	       (fabs(size.width - 780.0) < 0.001 && fabs(size.height - 360.0) < 0.001));
+}
+
+static bool
+sb_method_type(Method method, int argument, char expected)
+{
+	char type[128] = { 0 };
+	if (argument < 0) {
+		method_getReturnType(method, type, sizeof(type));
+	} else {
+		method_getArgumentType(method, (unsigned)argument, type, sizeof(type));
+	}
+	const char *value = type;
+	while (*value && strchr("rnNoORV", *value) != NULL) {
+		value++;
+	}
+	return *value == expected && (expected != '@' || value[1] != '?');
+}
+
+static void
+sb_hook_native_provider(void)
+{
+	Class factory = objc_getClass("_UIStatusBarVisualProvider_iOS");
+	Class provider = objc_getClass("_UIStatusBarVisualProvider_Split1080");
+	if (factory == Nil || provider == Nil) {
+		return;
+	}
+	SEL sel = sel_registerName("visualProviderSubclassForScreen:visualProviderInfo:");
+	Method method = class_getClassMethod(factory, sel);
+	if (method == NULL || method_getNumberOfArguments(method) != 4 ||
+	    !sb_method_type(method, -1, '#') ||
+	    !(sb_method_type(method, 0, '@') || sb_method_type(method, 0, '#')) ||
+	    !sb_method_type(method, 1, ':') || !sb_method_type(method, 2, '@') || !sb_method_type(method, 3, '@')) {
+		return;
+	}
+	Class (*original)(id, SEL, id, id) = (Class (*)(id, SEL, id, id))method_getImplementation(method);
+	IMP replacement = imp_implementationWithBlock(^Class(id cls, id screen, id info) {
+		return sb_native_screen(screen) ? provider : original(cls, sel, screen, info);
+	});
+	/* Add on this metaclass when inherited; never replace the superclass's factory. */
+	if (!class_addMethod(object_getClass(factory), sel, replacement, method_getTypeEncoding(method))) {
+		method_setImplementation(method, replacement);
+	}
+	sb_note(@"native Split1080 provider hook");
+}
+
 __attribute__((constructor)) static void
 sb_init(void)
 {
@@ -519,11 +580,15 @@ sb_init(void)
 		sb_rx = h / 2;
 	}
 	bool yr = sb_dy != 0 || sb_rx != 0;
-	if (!m && !t && !sb_diag && !x && !yr) {
+	bool native = stat("/var/local/sweetsb.n", &st) == 0 && st.st_size == 100;
+	if (!m && !t && !sb_diag && !x && !yr && !native) {
 		return;
 	}
 	if (objc_getClass("UIStatusBar_Modern") == Nil && objc_getClass("_UIStatusBar") == Nil) {
 		return;         /* no UIKit status bar in this process */
+	}
+	if (native) {
+		sb_hook_native_provider();
 	}
 	if (m && sb_hook_centering() == 0) {
 		sb_note(@"no +leadingCenteringOffset found: use /var/local/sweetsb.t");
