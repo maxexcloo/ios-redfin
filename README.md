@@ -11,6 +11,7 @@ Experimental iOS 16.7.16 (`20H392`, iPhone X userland) on Google Pixel 5 (`redfi
 | Boot | Minimal ADT plus invalidated MobileGestalt capability cache fixes the SpringBoard boot stall; CPU fallback retained |
 | Rendering | Kernel 1051 passed CI; preserving recorded row pitch fixes striped plane, AirDrop and camera glyphs. Dead-fill mode 1 preserves text; A/B/B/A testing reintroduced missing characters in mode 2, so source defaults to 1. Selective fetcher-only ordering also loses Control Centre text and remains off |
 | Pacing | Settings scrolling delivered 56.12 fps with no scanout drops after checking the starting scene and cooling. Earlier repeated-swipe tests delivered about 29 fps but did not verify the scene. SweetFPS raises SpringBoard’s request to 90 without a demonstrated delivery improvement |
+| Haptics | Direct requests, UIKit selection feedback and system vibration reach completed DRV2624 transactions. Kernel 1052 enforces the 1.5-second continuous-on limit and rest period; tactile quality still needs assessment |
 | Other hardware | Wi-Fi and sensor services are disabled; their firmware/calibration inputs are not installed. Bluetooth shows Unavailable. Audio and cameras remain unverified here; upstream results are not local proof |
 | Limitations | Charging under iOS, reliable suspend, cellular, GPS, NFC, fingerprint, SEP and Apple services remain unavailable or unfinished; the security model is permissive |
 
@@ -43,12 +44,12 @@ NOBOOT=1 bash tools/redfin-boot.sh minimal "$redfin_fallback"
 Temporarily boot the prepared phone with the tested accelerated configuration:
 
 ```sh
-redfin_kernel=xnu/out-1051/kernel.development.sweet
+redfin_kernel=xnu/out-1052/kernel.development.sweet
 redfin_args=(flamecpufreq=2 sweetgov=4060 sweetsurfkeep=1 sweetvsyncphase=0)
 PRESET=ui bash tools/redfin-boot.sh working "$redfin_kernel" "${redfin_args[@]}"
 ```
 
-The helper refuses multiple fastboot devices or another product. The default profile uses CPU rendering; `PRESET=ui` enables Metal, double buffering and direct scanout. Both omit camera/flash advertisement. Exact arguments and outputs stay in `work/boot/NAME.{adt,cmdline,payload,img}`. Preserve working images while comparing changes.
+The helper refuses multiple fastboot devices or another product. The default profile uses CPU rendering; `PRESET=ui` enables Metal, double buffering, direct scanout and UI haptics when `SweetHaptics.dylib` is installed. Both omit camera/flash advertisement. Exact arguments and outputs stay in `work/boot/NAME.{adt,cmdline,payload,img}`. Preserve working images while comparing changes.
 
 **Invalidate MobileGestalt's CacheVersion when changing ADT capabilities.** Stale camera/flash answers blocked SpringBoard in `AVFlashlight` initialisation after those nodes were removed. The root tweaks invalidate the cache; an installed phone also needs that change, with a backup, before rebooting. The camera preset requires firmware/tables, RedwoodAudio and MediaToolbox's D22/D221/Default `StartRecorderServer=true` with its prewarm hook active; the CPU root disables that server.
 
@@ -71,6 +72,7 @@ Keep Apple material, translated shaders, vendor firmware, calibration dumps, pho
 - iPhone X root, SystemOS and AppOS DMGs in `research/ipsw-x/dmg/`, and extracted `research/ipsw-x/d22ap.adt`; `tools/remotezip.py` fetches IPSW members.
 - Adreno firmware in `fw-redfin/`: `a650_gmu.bin`, `a650_sqe.fw`, `a620_zap.mdt`, `a620_zap.b02`; `tools/redfin-gpufw.sh` extracts it from the matching factory archive.
 - Built `SweetMetal2.bundle`, installed by `tools/flame-metal2-install.sh` once SSH is available; `/var/local/m2v-cache/<process>` must be writable by mobile. Tested `/var/local/mtl2-clients`: `* -chronod`.
+- Built `SweetHaptics.dylib` from the userland artefact or `phone/haptics/build.sh`, installed at `/var/local/lib/SweetHaptics.dylib` by staging and rename.
 - `/var/local/mtl2-env`, one `KEY=VALUE` per line: `TU_DEBUG=sysmem`, `SWEET_UBWC=1`, `SWEET_M2V_COLOR_WRITES=fetch`, `SWEET_M2V_SCRATCH=1`, `SWEET_TIMELINE=1`, `SWEET_U0011=1`, `SWEET_U0012=1`, `SWEET_U0013=1`, `SWEET_U0014=1`, `SWEET_NILENC=1`, `SWEET_PREWARM=2`, `SWEET_LUMA_BOOST=0`. `SWEET_DEADFILL=1` is the verified text-preserving mode and current source default.
 - `work/rtc-offset` for PMIC clock calibration; `work/`, `logs/`, `out/` and `archive/` hold generated or preserved local artefacts. Experiment history and patch explanations remain in Git.
 
