@@ -10,7 +10,7 @@ Experimental iOS 16.7.16 (`20H392`, iPhone X userland) on Google Pixel 5 (`redfi
 | --- | --- |
 | Boot | Minimal ADT plus invalidated MobileGestalt capability cache fixes the SpringBoard boot stall; CPU fallback retained |
 | Rendering | Kernel 1051 passed CI; preserving recorded row pitch fixes striped plane, AirDrop and camera glyphs. Dead-fill mode 1 preserves text; A/B/B/A testing reintroduced missing characters in mode 2, so source defaults to 1 |
-| Pacing | Governor with touch boost remains about 29.45 fps; vsync phase 5000 alone measured 29.07 fps. SweetFPS was built, installed and its injection confirmed; warm scrolling measured 29.47 fps. CA timer/heartbeat testing is still pending |
+| Pacing | Governor with touch boost remains about 29.45 fps; vsync phase 5000 alone measured 29.07 fps. SweetFPS rewrites SpringBoard’s 30 fps request to 90, but delivered scrolling remains 28.92 fps with diagnostic logging off; CA timer/heartbeat overrides did not remove the limit |
 | Other hardware | Wi-Fi, Bluetooth, audio, cameras and sensors are upstream results, unverified on this installation |
 | Limitations | Charging under iOS, reliable suspend, cellular, GPS, NFC, fingerprint, SEP and Apple services remain unavailable or unfinished; the security model is permissive |
 
