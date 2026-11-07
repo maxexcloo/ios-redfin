@@ -192,7 +192,7 @@ static void ev_cb(void *ctx, const struct sns_suid *suid, uint32_t msg_id, uint6
 			s->suid = suids[0];
 			s->have_suid = 1;
 		} else {
-			s->have_suid = -1;	/* answered: no such sensor */
+			s->have_suid = -1;	/* empty update: enumeration may not be ready yet */
 		}
 		return;
 	}
@@ -294,11 +294,11 @@ static int request(struct sensor_env *e, struct sensor *s, uint32_t msg_id, cons
 	}
 }
 
-/* After a request: handle indications until *flag is set or the timeout passes. */
+/* After a request: handle indications until *flag is positive or the timeout passes. */
 static int wait_for(struct sensor_env *e, struct sensor *s, const int *flag)
 {
 	long deadline = sensor_now_ms() + (e->timeout_ms ? e->timeout_ms : 3000);
-	while (!*flag) {
+	while (*flag <= 0) {
 		long left = deadline - sensor_now_ms();
 		if (left <= 0 || sensor_poll(e, s, (int)left) < 0)
 			return -1;
@@ -312,12 +312,8 @@ int sensor_lookup(struct sensor_env *e, struct sensor *s)
 	size_t n = sns_enc_suid_req(pl, sizeof(pl), s->k->data_type, 1, 1);
 	s->have_suid = 0;
 	if (request(e, s, SNS_MSG_SUID_REQ, pl, n) || wait_for(e, s, &s->have_suid)) {
-		if (!s->have_suid)
-			printf("sensd: %s: no SUID event for \"%s\"\n", s->k->alias, s->k->data_type);
-		return -1;
-	}
-	if (s->have_suid < 0) {
-		printf("sensd: %s: the DSP has no \"%s\" sensor\n", s->k->alias, s->k->data_type);
+		if (s->have_suid <= 0)
+			printf("sensd: %s: no SUID available for \"%s\"\n", s->k->alias, s->k->data_type);
 		return -1;
 	}
 	return 0;
