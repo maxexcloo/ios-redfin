@@ -1,16 +1,9 @@
-# Working on ios-redfin
+# iOS Redfin
 
-- Read `README.md`, then `NOTES.md` (hardware facts, ABL boot image rules, test loop) and the top of
-  `HANDOFF-REDFIN.md` (current local state; older Flame history is in `HANDOFF.md`). ios-sweet's history is in `docs/ios-sweet/`.
-- Record each milestone in `HANDOFF-REDFIN.md`, with the kernel number, the boot args, exact
-  results and what is still open. Keep observations apart from guesses. A new kernel patch is one line in
-  `NOTES.md` ("Redfin patches") too.
-- Kernel changes: edit `work/dxb/xnu` (a git repo, HEAD = baseline + applied patches), commit, and save the diff
-  as the next `xnu/patches/NNNN-redfin-*.patch`. `tools/build-xnu.sh` builds locally in minutes.
-- Device bring-up uses temporary `fastboot boot` images. Never flash ABL, XBL, TZ, modem or other firmware
-  partitions, never relock the bootloader on modified software, and keep the partition backups intact.
-  Confirm each destructive step with the user before running it. `RECOVERY.md` restores stock Android.
-- Keep out of git: partition dumps, device trees and logs from a phone (serials, IMEI, network names),
-  Apple's files (IPSW parts, the root image, shared cache, kernelcache, anything translated from Apple's
-  shaders), Google and Qualcomm images and firmware, and Wi-Fi credentials (`/var/local/wlan.conf` lives on
-  the phone only).
+- Scope is Pixel 5 / redfin / SM7250. README distinguishes this phone's observed behaviour from upstream claims. Update it from identified device evidence; keep experiment history in commits and ignored `work/boot/`/`logs/` artefacts.
+- `xnu/patches/` owns kernel changes. Save a numbered patch from the patched build tree, preserving upstream provenance. Check existing numbers before importing another branch: upstream workstreams reuse 1048/1049. Build success does not establish boot or rendering correctness.
+- Bring-up uses temporary `fastboot boot` images. The boot helper must verify a single redfin device so other ports' phones are untouched. Installing the root writes `userdata`; confirm data-erasing steps immediately beforehand. Never flash ABL, XBL, TZ, modem or calibration partitions for bring-up, and never relock modified software.
+- Pixel ABL requires boot header v3, an LZ4 Image with text offset 0x80000, and an AVB footer padded to 96 MiB. It takes the DTB from the installed `vendor_boot`. Preserve the top 17 MiB of userdata for logs; do not read/write `/dev/ufsroot0` from iOS userspace (physio panic).
+- Changing ADT camera/flash capabilities requires invalidating MobileGestalt's CacheVersion. Keep the working no-camera UI profile; camera advertisement requires its capture server and plug-in. Preserve root/mobile numeric ownership when copying or mounting the root image. Replace loaded dylibs by rename.
+- Keep Apple material, translated shaders, vendor firmware, phone trees/logs, partition dumps and credentials out of Git and tool output. Their local paths are ignored; inspect only the data necessary for the task.
+- Run `mise run check`; `mise run build -- PAYLOAD OUT` builds the native LLVM shim. Keep thermal protection enabled, and validate rendering on the phone using delivered frames and interaction rather than panel Hz or idle thread counts.

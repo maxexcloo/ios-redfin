@@ -1,7 +1,7 @@
 #!/bin/bash
 # Install SSH (dropbear) + dash into the running iOS root over the kernel file
 # server (TCP 192.168.7.2:2223, tools/flame-files.py), from Linux.
-# Binaries: work/userland/stage (userland.yml artifact). Key generated here.
+# Binaries: work/userland/stage (userland.yaml artifact). Key generated here.
 # launchd reads its job cache at boot: reboot afterwards.
 #
 #   tools/sunfish-install-ssh.sh

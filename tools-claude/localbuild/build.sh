@@ -1,5 +1,5 @@
 #!/bin/bash
-# Local builds: the same steps as .github/workflows/{shim,userland,metal2,xnu}.yml, on Linux.
+# Local builds: the same steps as .github/workflows/{shim,userland,metal2,xnu}.yaml, on Linux.
 #   build.sh TARGET [REF]       TARGET shim | userland | metal2 | xnu;  REF branch or commit (default redfin-qol)
 # Source: REF of DenialOfGravity/ios-flame-redfin, fetched fresh each run into $WORK/TARGET/repo (the build trees
 # beside it are kept, so rebuilds are incremental). Result: $P/builds/TARGET/<REF>-<sha>/ (+ BUILD.txt, build.log).
@@ -38,7 +38,7 @@ ios_env() {	# iOS cross builds: our wrappers first (xcrun, codesign->ldid, nm/st
 	ln -sf "$LBIN/ios-cc" "$R/work/userland/bin/ios-cc"
 }
 
-# ---- shim (shim.yml) ----
+# ---- shim (shim.yaml) ----
 build_shim() {
 	local mk=$SRC/mkbootimg avb=$SRC/avb
 	[ -d "$mk/.git" ] || git clone -q --depth 1 https://github.com/LineageOS/android_system_tools_mkbootimg "$mk"
@@ -53,7 +53,7 @@ build_shim() {
 	cp out/* "$OUT/"
 }
 
-# ---- userland (userland.yml) ----
+# ---- userland (userland.yaml) ----
 DROPBEAR_VER=2022.83 DASH_VER=0.5.12 TOYBOX_VER=0.8.11
 dl() {	# URL -> cached file name
 	mkdir -p "$SRC/dl"; local f=$SRC/dl/$(basename "$1")
@@ -120,7 +120,7 @@ EOH
 	[ -f "$OUT/dropbearmulti" ] && [ -d "$OUT/RedwoodAudio.driver" ]
 }
 
-# ---- metal2 (metal2.yml) ----
+# ---- metal2 (metal2.yaml) ----
 MESA_COMMIT=85fda3b36405bcaea8bffc64aa4f2651dc90770d UNIXNU_M2_COMMIT=e95b37d97875bd8b30c976fcdef44d35d9c27bf3 M2V_COMMIT=720ef1ce
 build_metal2() {
 	ios_env
@@ -168,7 +168,7 @@ build_metal2() {
 	[ -d "$OUT/SweetMetal2.bundle" ]
 }
 
-# ---- xnu (xnu.yml) ----
+# ---- xnu (xnu.yaml) ----
 build_xnu() { bash "$HERE/xnu.sh" "$R" "$OUT"; }
 
 LOG=$OUT/build.log

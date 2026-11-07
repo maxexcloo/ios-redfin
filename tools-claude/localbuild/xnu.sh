@@ -1,6 +1,6 @@
 #!/bin/bash
 # xnu.sh REPO OUT: the SWEET kernel (xnu-8796.141.3 + REPO/xnu/patches, DEVELOPMENT ARM64 SWEET) on Linux.
-# The steps of .github/workflows/xnu.yml (blacktop/darwin-xnu-build build.sh at its pinned commit), with UniXNU's Linux
+# The steps of .github/workflows/xnu.yaml (blacktop/darwin-xnu-build build.sh at its pinned commit), with UniXNU's Linux
 # toolchain (setup.sh xnu-tools) in place of Xcode: patched clang, cctools ld64, mig, iig-port, xcrun/plutil shims.
 # State in $WORK/xnu: xnu/ (patched source; only files whose content changed are rewritten, so make is
 # incremental like CI's cache), build/xnu.obj, fakeroot/ (headers, libfirehose_kernel, libcc_kext; made once).
