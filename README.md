@@ -4,15 +4,16 @@ Experimental iOS 16.7.16 (`20H392`, iPhone X userland) on Google Pixel 5 (`redfi
 
 ## Status
 
-**Unlock, Settings and touch work on this phone.** Metal with direct scanout is visibly smoother than CPU rendering. Scene-verified Settings scrolling delivered about 56 fps; other repeated-swipe workloads measured about 29 fps, with their starting scene unverified. This is not yet a consistently smooth or stable phone OS.
+**Unlock, Settings, touch and brightness control work on this phone.** Metal with direct scanout is visibly smoother than CPU rendering. Scene-verified Settings runs delivered about 52–66 fps; other repeated-swipe workloads measured about 29 fps, with their starting scene unverified. This is not yet a consistently smooth or stable phone OS.
 
 | Area | Local Evidence & Remaining Work |
 | --- | --- |
 | Boot | Minimal ADT plus invalidated MobileGestalt capability cache fixes the SpringBoard boot stall; CPU fallback retained |
-| Rendering | Kernel 1051 passed CI; preserving recorded row pitch fixes striped plane, AirDrop and camera glyphs. Dead-fill mode 1 preserves text; A/B/B/A testing reintroduced missing characters in mode 2, so source defaults to 1. Selective fetcher-only ordering also loses Control Centre text and remains off |
-| Pacing | Settings scrolling delivered 56.12 fps with no scanout drops after checking the starting scene and cooling. Earlier repeated-swipe tests delivered about 29 fps but did not verify the scene. SweetFPS raises SpringBoard’s request to 90 without a demonstrated delivery improvement |
+| Rendering | Kernel 1055 booted and passed CI; preserving recorded row pitch fixes striped plane, AirDrop and camera glyphs. Dead-fill mode 1 preserves text; A/B/B/A testing reintroduced missing characters in mode 2, so source defaults to 1. Selective fetcher-only ordering also loses Control Centre text and remains off |
+| Pacing | A colder scene-verified Settings run delivered 65.62 fps at 52.3°C, with frame gaps still reaching 43 ms. SweetFPS raises SpringBoard’s request to 90 without a demonstrated delivery improvement |
+| Brightness | Control Centre slider changes reach completed panel commands. Kernel 1055 enforces the cap across both request paths and restores the retained target when it rises. Luminance mapping and OEM battery-current estimates are provisional, not measured panel calibration |
 | Haptics | Direct requests, UIKit selection feedback and system vibration reach completed DRV2624 transactions. Kernel 1052 enforces the 1.5-second continuous-on limit and rest period; tactile quality still needs assessment |
-| Other hardware | Wi-Fi and sensor services are disabled; their firmware/calibration inputs are not installed. Bluetooth shows Unavailable. Audio and cameras remain unverified here; upstream results are not local proof |
+| Other hardware | Wi-Fi and sensor services are disabled. Sensor firmware, own calibration and SoC inputs are installed and verified; a bounded DSP trial remains. Bluetooth shows Unavailable. Audio and cameras remain unverified here; upstream results are not local proof |
 | Limitations | Charging under iOS, reliable suspend, cellular, GPS, NFC, fingerprint, SEP and Apple services remain unavailable or unfinished; the security model is permissive |
 
 ## Build & Check
@@ -41,15 +42,15 @@ redfin_fallback=xnu/out-rk5a/kernel.development.sweet
 NOBOOT=1 bash tools/redfin-boot.sh minimal "$redfin_fallback"
 ```
 
-Temporarily boot the prepared phone with the tested accelerated configuration:
+Temporarily boot the prepared phone with an accelerated configuration:
 
 ```sh
-redfin_kernel=xnu/out-1052/kernel.development.sweet
+redfin_kernel=xnu/out-1055/kernel.development.sweet
 redfin_args=(flamecpufreq=2 sweetgov=4060 sweetsurfkeep=1 sweetvsyncphase=0)
 PRESET=ui bash tools/redfin-boot.sh working "$redfin_kernel" "${redfin_args[@]}"
 ```
 
-The helper refuses multiple fastboot devices or another product. The default profile uses CPU rendering; `PRESET=ui` enables Metal, double buffering, direct scanout and UI haptics when `SweetHaptics.dylib` is installed. Both omit camera/flash advertisement. Exact arguments and outputs stay in `work/boot/NAME.{adt,cmdline,payload,img}`. Preserve working images while comparing changes.
+The helper refuses multiple fastboot devices or another product. The default profile uses CPU rendering; `PRESET=ui` enables Metal, double buffering, direct scanout and panel brightness. UI haptics use the installed `SweetHaptics.dylib`. Both profiles omit camera/flash advertisement. Exact arguments and outputs stay in `work/boot/NAME.{adt,cmdline,payload,img}`. Preserve working images while comparing changes.
 
 **Invalidate MobileGestalt's CacheVersion when changing ADT capabilities.** Stale camera/flash answers blocked SpringBoard in `AVFlashlight` initialisation after those nodes were removed. The root tweaks invalidate the cache; an installed phone also needs that change, with a backup, before rebooting. The camera preset requires firmware/tables, RedwoodAudio and MediaToolbox's D22/D221/Default `StartRecorderServer=true` with its prewarm hook active; the CPU root disables that server.
 

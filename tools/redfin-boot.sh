@@ -8,7 +8,7 @@
 # Image: work/boot/NAME.img; args: work/boot/NAME.cmdline.
 #
 # Environment (C5: the present/clock experiments are one variable each):
-#   PRESET=ui      tested UI: Metal, double buffering, 625 MHz GPU, direct scanout, UI haptics, no camera/flash
+#   PRESET=ui      tested UI: Metal, double buffering, 625 MHz GPU, direct scanout, haptics, brightness, no camera/flash
 #   PRESET=camera  the r18g+ line (GPU=2, Metal v2, sec_ts touch, haptics, backlight, torch, cameras, sweetnull)
 #   GPU=0|1|2      CPU rendering / kernel GPU present / plus Metal on Turnip (PRESET=camera sets 2)
 #   FLIP=1         double-buffered present (0905 sweetfbflip=1)          e.g. r19b: PRESET=camera FLIP=1
@@ -49,8 +49,8 @@ elif [ "${PRESET:-}" = ui ]; then
 	FLIP=${FLIP:-1}
 	GPUFREQ=${GPUFREQ:-4}
 	base=$(printf '%s\n' $base | grep -v -e '^sweetscanout=' | tr '\n' ' ')
-	base="$base sweetscanout=2 sweethaptic=1 sweetui=1"
-	adt_args=(--highmem)
+	base="$base sweetscanout=2 sweethaptic=1 sweetui=1 sweetbl=2"
+	adt_args=(--highmem --backlight)
 elif [ -n "${PRESET:-}" ]; then
 	echo "unknown PRESET=$PRESET (ui, camera)" >&2
 	exit 1
