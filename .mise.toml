@@ -1,5 +1,6 @@
 [tools]
 actionlint = "latest"
+shellcheck = "latest"
 
 [tasks.build]
 run = "bash shim/build.sh"
