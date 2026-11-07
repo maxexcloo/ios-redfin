@@ -502,8 +502,10 @@ static int cmd_daemon(void)
 			sleep(30);
 			continue;
 		}
-		run(ss, n, 1);
+		int rc = run(ss, n, 1);
 		close_all(ss, n);
+		if (opt.secs)
+			return rc ? 1 : 0;
 		sleep(2);
 	}
 	return 0;

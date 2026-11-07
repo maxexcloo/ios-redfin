@@ -291,6 +291,7 @@ static void fake_dsp(int fd)
 		}
 		if (selector_report >= 0) {
 			char receipt = msg_id == SNS_MSG_ATTR_REQ ? 't' :
+			    msg_id == SNS_MSG_SENSOR_CONFIG ? 'c' : msg_id == SNS_MSG_DISABLE ? 'd' :
 			    msg_id == SNS_MSG_SUID_REQ && plen >= 7 && !memcmp(payload + 2, "accel", 5) ? 'a' : 'x';
 			if (write(selector_report, &receipt, 1) != 1)
 				_exit(6);
@@ -459,10 +460,11 @@ static void test_suid_readiness(void)
 /* ---- finite CLI streams: service loss is distinct from a quiet sensor ---- */
 static int selector_fd = -1, selector_motion_fd = -1;
 static int selector_opens, selector_device_opens, selector_marker;
+static int selector_stop_setup = 1, selector_open_limit;
 static int cli_open(void)
 {
 	selector_opens++;
-	if (selector_fd < 0) {
+	if (selector_fd < 0 || (selector_open_limit && selector_opens > selector_open_limit)) {
 		stop_flag = 1;
 		errno = ENODEV;
 		return -1;
@@ -495,8 +497,12 @@ static int cli_lookup(int fd, uint32_t service, uint32_t *node, uint32_t *port)
 	(void)fd;
 	CHECK(service == SNS_QMI_SERVICE);
 	lookup_calls++;
-	if (selector_fd >= 0 && lookup_calls == 2)
+	if (selector_fd >= 0 && selector_stop_setup && lookup_calls == 2)
 		stop_flag = 1; /* Complete real selected-sensor setup, then leave the daemon before streaming. */
+	if (lookup_case == 8 && lookup_calls > 2) {
+		errno = ECONNRESET;
+		return -1;
+	}
 	if ((lookup_case == 1 || lookup_case == 6) && lookup_calls > 1) {
 		errno = lookup_case == 6 ? ECONNRESET : ENOENT;
 		return -1;
@@ -549,6 +555,56 @@ static void reset_selector_cli(void)
 	lookup_case = lookup_calls = 0;
 	selector_fd = selector_motion_fd = -1;
 	selector_opens = selector_device_opens = selector_marker = 0;
+	selector_stop_setup = 1;
+	selector_open_limit = 0;
+}
+
+static void test_finite_daemon(void)
+{
+	for (int disconnected = 0; disconnected < 2; disconnected++) {
+		int sv[2], receipts[2];
+		if (socketpair(AF_UNIX, SOCK_DGRAM, 0, sv) || pipe(receipts)) {
+			CHECK(0);
+			return;
+		}
+		selector_report = receipts[1];
+		pid_t pid = fork();
+		if (pid == 0) {
+			close(receipts[0]);
+			signal(SIGTERM, SIG_DFL);
+			close(sv[0]);
+			fake_dsp(sv[1]);
+			_exit(0);
+		}
+		CHECK(pid > 0);
+		if (pid < 0) {
+			close(sv[0]); close(sv[1]); close(receipts[0]); close(receipts[1]);
+			selector_report = -1;
+			return;
+		}
+		close(sv[1]);
+		close(receipts[1]);
+		selector_report = -1;
+		fcntl(sv[0], F_SETFL, O_NONBLOCK);
+		reset_selector_cli();
+		selector_fd = sv[0];
+		selector_stop_setup = 0;
+		selector_open_limit = 2; /* An erroneous restart exits instead of hanging the test. */
+		lookup_case = disconnected ? 8 : 0;
+		char *args[] = { "sensd", "--daemon", "--only", "accel", "--no-motion", "--no-orient", "--secs", "1", NULL };
+		CHECK(sensd_cli_main(8, args) == (disconnected ? 1 : 0));
+		CHECK(selector_opens == 2); /* Finite success or service loss must not open a recovery session. */
+		CHECK(selector_device_opens == 0);
+		close(sv[0]);
+		selector_fd = -1;
+		kill(pid, SIGTERM);
+		int status;
+		CHECK(waitpid(pid, &status, 0) == pid && WIFSIGNALED(status) && WTERMSIG(status) == SIGTERM);
+		char requests[8];
+		ssize_t n = read(receipts[0], requests, sizeof(requests));
+		CHECK(disconnected ? n == 2 && !memcmp(requests, "at", 2) : n == 4 && !memcmp(requests, "atcd", 4));
+		close(receipts[0]);
+	}
 }
 
 static void test_daemon_selector(void)
@@ -664,6 +720,7 @@ int main(void)
 	test_suid_readiness();
 	test_cli_liveness();
 	test_daemon_selector();
+	test_finite_daemon();
 	test_motion_open_policy();
 	printf("%s (%d failures)\n", failures ? "FAILED" : "all sensd host tests passed", failures);
 	return failures ? 1 : 0;
