@@ -1337,6 +1337,8 @@ static void notified(void *context,uint64_t value) {
 @property(atomic,strong) dispatch_queue_t completionQueue;   // SPI: where command buffers' handlers run (nil: the runtime's thread)
 @end
 @interface NBCommandBuffer : NBObject {
+@private
+ NSMutableDictionary *_userDictionary;
 @public
  EncodedWork encodedWork;   // the command buffer's single encoder thread, not global counter deltas
  uint64_t createdUs;
@@ -2554,6 +2556,13 @@ static void noteDeviceLost(const char *why) {
  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,500*NSEC_PER_MSEC),dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE,0),^{_exit(75);});
 }
 @implementation NBCommandBuffer
+// MPS keeps its per-command-buffer state here until the buffer is released.
+- (id)userDictionary {
+ @synchronized(self) {
+  if(!_userDictionary)_userDictionary=[NSMutableDictionary dictionary];
+  return _userDictionary;
+ }
+}
 - (instancetype)init {
  if((self=[super init])){_scheduledHandlers=[NSMutableArray array];_completedHandlers=[NSMutableArray array];_surfaces=[NSMutableSet set];_writtenSurfaces=[NSMutableSet set];_resourceOwners=[NSMutableSet set];_handlers=dispatch_group_create();_schedulingHandlers=dispatch_group_create();}
  if(self){createdUs=nowUs();if(timelineOn())tlCreated=tlNow();encDeferred=encThreadOn();}
