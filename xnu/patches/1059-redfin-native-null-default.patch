@@ -5,8 +5,8 @@ Subject: [PATCH] 1059 redfin: probe native geometry without a default surface
 
 CONTROLLED EXPERIMENT, not an established CoreAnimation contract or fix.
 Only sweetfb_native=2 makes selector 3 return success with one output,
-MACH_PORT_NULL. Both framebuffer and HID geometry already treat native as
-nonzero, so mode 2 keeps mode 1's native dimensions without another boot
+a zero user-space port name. Both framebuffer and HID geometry already
+treat native as nonzero, so mode 2 keeps mode 1's native dimensions without another boot
 argument. Modes 0/1 retain the existing default-surface port path exactly.
 
 The physical fSurface is still created and retained in every mode for the
@@ -87,7 +87,7 @@ Apple material or firmware is imported; existing licences stay intact.
  	case kSweetFBGetLayerDefaultSurface:
 -		out[0] = sweet_surface_port_in_task(fFB->fSurface, fTask);
 +		/* Controlled native2 probe: keep the physical surface for the console and fallback paths. */
-+		out[0] = fFB->fNullDefaultProbe ? MACH_PORT_NULL : sweet_surface_port_in_task(fFB->fSurface, fTask);
++		out[0] = fFB->fNullDefaultProbe ? 0 : sweet_surface_port_in_task(fFB->fSurface, fTask);
  		outCount = 1;
  		break;
  	case kSweetFBSwapBegin:
