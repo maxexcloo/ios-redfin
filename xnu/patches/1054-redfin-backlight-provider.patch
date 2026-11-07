@@ -1,0 +1,238 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Max Schaefer <max@excloo.com>
+Date: Sat, 07 Nov 2026 17:21:30 +1100
+Subject: [PATCH] Add an opt-in bounded CoreBrightness luminance provider
+
+sweetbl=2 opts into the new provider; sweetbl=1 retains the legacy handler
+and sweetbl=0 leaves the service off. Publish the nine required fixed16.16
+OSNumbers, own linear 2..500nit marketing OSData, 500nit user OSData and
+fixed16.16 nits/cap and normalised IODisplayParameters before enabling
+the actual Boolean architecture flag.
+The product and panel maxima are equal, so this advertises no extra EDR.
+
+The nine keys are current-for-max-backlight, current-for-mid-backlight,
+hardware-max-current-limit, lMaxProduct, lMidProduct, lMinProduct,
+lMaxPanel, lMidPanel and lMinPanel. The two midpoints are 251nits, halfway
+between 2 and 500. The three-entry marketing curve is our linear mapping,
+not copied Apple calibration. The exact20H392 reader derives its count
+from CFDataGetLength/4 and reads to that count, rather than assuming101.
+The pinned public provider independently uses17 entries. Our table has
+three points, sufficient to represent this straight line. Its u32 entries are
+fixed16.16 nits, as is the four-byte user cap.
+
+Current metadata uses Google's Redfin OEM battery estimate: screen.on98mA
+plus screen.full470mA gives max568mA, half-range333mA and an estimate limit
+of568mA. These are whole-screen battery-side estimates, NOT measured panel
+rail current or a measured hardware current limit. Electrical-reference
+equivalence remains unproved. No value is applied to panel/PMIC current
+controls. This experimental metadata must be validated on the phone.
+
+Sources:
+https://github.com/Evsio0n/instantnoodle-xnu/blob/4b3afed623664548bfb09aa8c3eb0afd6dccb5d1/xnu/files/iokit/Kernel/MiniAppleARMBacklight.cpp
+https://android.googlesource.com/device/google/redfin/+/00ce4bf0aa8c9a4172b751582f36d7f2f5a0f768/redfin/overlay/frameworks/base/core/res/res/xml/power_profile.xml
+https://source.android.com/docs/core/power/values
+Exact20H392 reader inspection confirms unconditional float conversion of
+all three current values followed by division by65536; the examined
+maximum-current reporting path forwards the estimate without conversion.
+
+Mode2 accepts only nits/cap requests; DisplayBrightness is notification
+only and legacy brightness/backlight-level requests do not drive it.
+Both targets and caps are clamped to2..500nits, mapped linearly onto
+DAC4..1023 and passed to the existing bounded/coalescing DCS worker.
+Zero and sub-floor caps stop at the existing physical minimum; no new
+zero-current, HBM, camera, PMIC or thermal-control behaviour is added.
+The uncapped target is retained so a later cap increase can restore it.
+A service-owned IOLock serialises target/cap updates, DCS queueing and
+readback publication, preventing stale high requests after a lower cap.
+
+---
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -506,6 +506,7 @@
+ #define SWEET_BL_PKT_PA         0xa2200000ULL
+ #define SWEET_BL_MIN            0x4u
+ #define SWEET_BL_MAX            0x3ffu
++#define SWEET_BL_MIN_NITS       2u
+ #define SWEET_BL_MAX_NITS       500u    /* IOMFBBrightnessLevel that maps to SWEET_BL_MAX */
+ 
+ #define DSI_CTRL                0x004
+@@ -697,6 +698,11 @@
+ public:
+ 	AppleCLCD *fFB;
+ 	bool fNitsDone;
++	bool fNewProvider;
++	IOLock *fStateLock;
++	void free(void) APPLE_KEXT_OVERRIDE;
++	uint32_t fNits16, fCap16;
++	bool publishProvider(void);
+ 	void publish(uint32_t level);
+ 	void publishNits(uint32_t level);
+ 	IOReturn setProperties(OSObject *properties) APPLE_KEXT_OVERRIDE;
+@@ -705,21 +711,39 @@
+ OSDefineMetaClassAndStructors(AppleARMBacklight, IOService);
+ 
+ void
++AppleARMBacklight::free(void)
++{
++	if (fStateLock != NULL) {
++		IOLockFree(fStateLock);
++	}
++	IOService::free();
++}
++
++void
+ AppleARMBacklight::publish(uint32_t level)
+ {
++	if (fNewProvider) {
++		setProperty("brightness-nits", (unsigned long long)(fNits16 < fCap16 ? fNits16 : fCap16), 32);
++		setProperty("brightness-nits-cap", (unsigned long long)fCap16, 32);
++		uint32_t actual = fNits16 < fCap16 ? fNits16 : fCap16;
++		level = (uint32_t)(((uint64_t)actual - (SWEET_BL_MIN_NITS << 16)) * 65536 /
++		    ((SWEET_BL_MAX_NITS - SWEET_BL_MIN_NITS) << 16));
++	}
+ 	OSDictionary *b = OSDictionary::withCapacity(3);
+ 	OSDictionary *p = OSDictionary::withCapacity(1);
+ 	if (b != NULL && p != NULL) {
+ 		OSNumber *n;
+ 		n = OSNumber::withNumber(0ULL, 32); b->setObject("min", n); OSSafeReleaseNULL(n);
+-		n = OSNumber::withNumber(SWEET_BL_MAX, 32); b->setObject("max", n); OSSafeReleaseNULL(n);
++		n = OSNumber::withNumber(fNewProvider ? 65536u : SWEET_BL_MAX, 32); b->setObject("max", n); OSSafeReleaseNULL(n);
+ 		n = OSNumber::withNumber(level, 32); b->setObject("value", n); OSSafeReleaseNULL(n);
+ 		p->setObject("brightness", b);
+ 		setProperty("IODisplayParameters", p);
+ 	}
+ 	OSSafeReleaseNULL(b);
+ 	OSSafeReleaseNULL(p);
+-	publishNits(level);
++	if (!fNewProvider) {
++		publishNits(level);
++	}
+ }
+ 
+ /*
+@@ -727,7 +751,6 @@
+  * clamps its target to 1 nit and never updates the backlight: "systemShallUpdateBacklight=false"). The S6E3HC2
+  * at its 500 nits <-> level 1023 (SWEET_BL_MAX_NITS), 2 nits the floor. Integer nits; boot-arg sweetnits=0: none.
+  */
+-#define SWEET_BL_MIN_NITS       2u
+ void
+ AppleARMBacklight::publishNits(uint32_t level)
+ {
+@@ -772,6 +795,51 @@
+ 	setProperty("brightness-nits", (unsigned long long)nits, 32);
+ }
+ 
++/* sweetbl=2: fixed16.16 luminance and OEM battery-current estimates, not panel-current measurements. */
++bool
++AppleARMBacklight::publishProvider(void)
++{
++	static const struct { const char *key; uint32_t value; } values[] = {
++		{ "current-for-max-backlight", 568u << 16 },
++		{ "current-for-mid-backlight", 333u << 16 },
++		{ "hardware-max-current-limit", 568u << 16 },
++		{ "lMaxProduct", SWEET_BL_MAX_NITS << 16 }, { "lMidProduct", 251u << 16 },
++		{ "lMinProduct", SWEET_BL_MIN_NITS << 16 },
++		{ "lMaxPanel", SWEET_BL_MAX_NITS << 16 }, { "lMidPanel", 251u << 16 },
++		{ "lMinPanel", SWEET_BL_MIN_NITS << 16 },
++	};
++	OSDictionary *calibration = OSDictionary::withCapacity(sizeof(values) / sizeof(values[0]));
++	if (calibration == NULL) {
++		return false;
++	}
++	for (unsigned i = 0; i < sizeof(values) / sizeof(values[0]); i++) {
++		OSNumber *n = OSNumber::withNumber(values[i].value, 32);
++		if (n != NULL) {
++			calibration->setObject(values[i].key, n);
++		}
++		OSSafeReleaseNULL(n);
++	}
++	/* Own linear curve: half of the 2..500 range is 251 nits, matching the OEM half-range estimate. */
++	uint32_t table[] = { SWEET_BL_MIN_NITS << 16, 251u << 16, SWEET_BL_MAX_NITS << 16 };
++	uint32_t userMax = SWEET_BL_MAX_NITS << 16;
++	OSData *marketing = OSData::withBytes(table, sizeof(table));
++	OSData *user = OSData::withBytes(&userMax, sizeof(userMax));
++	bool ok = calibration->getCount() == sizeof(values) / sizeof(values[0]) && marketing != NULL && user != NULL;
++	if (ok) {
++		ok = setProperty("backlight-calibration-parameters", calibration) &&
++		    setProperty("backlight-marketing-table", marketing) &&
++		    setProperty("user-accessible-max-nits", user);
++	}
++	OSSafeReleaseNULL(calibration);
++	OSSafeReleaseNULL(marketing);
++	OSSafeReleaseNULL(user);
++	if (ok) {
++		publish(SWEET_BL_MAX / 2);
++		ok = setProperty("new-backlight-architecture", kOSBooleanTrue);
++	}
++	return ok;
++}
++
+ IOReturn
+ AppleARMBacklight::setProperties(OSObject *properties)
+ {
+@@ -792,6 +860,35 @@
+ 			}
+ 		}
+ 	}
++	if (fNewProvider) {
++		if (d == NULL) {
++			return kIOReturnBadArgument;
++		}
++		/* Keep cap/target changes, queueing and readback in one order across clients. */
++		IOLockLock(fStateLock);
++		OSNumber *nits = OSDynamicCast(OSNumber, d->getObject("brightness-nits"));
++		OSNumber *cap = OSDynamicCast(OSNumber, d->getObject("brightness-nits-cap"));
++		const uint64_t low = (uint64_t)SWEET_BL_MIN_NITS << 16;
++		const uint64_t high = (uint64_t)SWEET_BL_MAX_NITS << 16;
++		if (nits != NULL) {
++			uint64_t v = nits->unsigned64BitValue();
++			fNits16 = (uint32_t)(v < low ? low : v > high ? high : v);
++		}
++		if (cap != NULL) {
++			uint64_t v = cap->unsigned64BitValue();
++			fCap16 = (uint32_t)(v < low ? low : v > high ? high : v);
++		}
++		if (nits != NULL || cap != NULL) {
++			uint32_t actual = fNits16 < fCap16 ? fNits16 : fCap16;
++			uint32_t level = SWEET_BL_MIN + (uint32_t)(((uint64_t)actual - low) *
++			    (SWEET_BL_MAX - SWEET_BL_MIN) / (high - low));
++			fFB->blSet(level);
++			publish(level);
++		}
++		IOLockUnlock(fStateLock);
++		/* DisplayBrightness is notification only. Never apply its float bits or legacy DAC requests. */
++		return kIOReturnSuccess;
++	}
+ 	/* Legacy only: no new-backlight-architecture or fabricated current calibration.
+ 	 * backlight-level is normalised fixed16.16, independent of panel DAC range. */
+ 	OSNumber *normal = d ? OSDynamicCast(OSNumber, d->getObject("backlight-level")) : NULL;
+@@ -980,12 +1077,25 @@
+ 		uint32_t blOn = 0;
+ 		PE_parse_boot_argn("sweetbl", &blOn, sizeof(blOn));
+ 		AppleARMBacklight *bl = blOn ? OSTypeAlloc(AppleARMBacklight) : NULL;
++		if (bl != NULL) {
++			bl->fStateLock = NULL;
++		}
+ 		if (bl != NULL && bl->init() && bl->attach(this)) {
+ 			bl->fFB = this;
++			bl->fNitsDone = false;
++			bl->fNewProvider = blOn == 2;
++			bl->fStateLock = bl->fNewProvider ? IOLockAlloc() : NULL;
++			bl->fNits16 = 250u << 16;
++			bl->fCap16 = SWEET_BL_MAX_NITS << 16;
+ 			bl->setProperty("backlight-control", true);
+-			bl->publish(SWEET_BL_MAX / 2);
+-			bl->registerService();
+-			IOLog("SWEET BL: AppleARMBacklight published (sweetbl=1)\n");
++			if (!bl->fNewProvider || (bl->fStateLock != NULL && bl->publishProvider())) {
++				bl->publish(SWEET_BL_MAX / 2);
++				bl->registerService();
++				IOLog("SWEET BL: AppleARMBacklight published (sweetbl=%u)\n", blOn);
++			} else {
++				bl->detach(this);
++				IOLog("SWEET BL: new provider allocation failed; service not published\n");
++			}
+ 		}
+ 		OSSafeReleaseNULL(bl);
+ 	}

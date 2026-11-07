@@ -1,3 +1,4 @@
 # Patch context contains a diff marker before original indentation and blank lines.
 phone/metal2/bridge/patches/0138-recorded-state-membership.patch whitespace=-blank-at-eol,-space-before-tab
 xnu/patches/1053-redfin-backlight-property-types.patch whitespace=-blank-at-eol,-space-before-tab
+xnu/patches/1054-redfin-backlight-provider.patch whitespace=-blank-at-eol,-space-before-tab
