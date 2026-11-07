@@ -1,0 +1,164 @@
+ios-redfin bridge patch 0139: retain render-owned argument tables without locking
+Ported from steelbrain/metal2vulkan commit 86b5d6faf31986b50b0d2b86525eb61d2e0a3379.
+Original author: Anees Iqbal; GPL-2.0-or-later OR LGPL-3.0-or-later.
+
+Render encoders exclusively borrow their stage tables. Use Mutex::get_mut there;
+shared callers keep locking. Both paths preserve the existing retention algorithm.
+
+diff --git a/crates/metal2vulkan-runtime/src/argument_table.rs b/crates/metal2vulkan-runtime/src/argument_table.rs
+--- a/crates/metal2vulkan-runtime/src/argument_table.rs
++++ b/crates/metal2vulkan-runtime/src/argument_table.rs
+@@ -900,24 +900,6 @@
+         );
+     }
+ 
+-    /// Each object bound, by slot, in the table's order: its buffers, then its textures, then
+-    /// its sampler states, each by index.
+-    fn bound(&self) -> impl DoubleEndedIterator<Item = ((SlotClass, u32), Bound<'_>)> {
+-        let buffers = self
+-            .buffers
+-            .iter()
+-            .map(|(&index, (buffer, _))| ((SlotClass::Buffer, index), Bound::Buffer(buffer)));
+-        let textures = self
+-            .textures
+-            .iter()
+-            .map(|(&index, texture)| ((SlotClass::Texture, index), Bound::Texture(texture)));
+-        let samplers = self
+-            .samplers
+-            .iter()
+-            .map(|(&index, (sampler, _))| ((SlotClass::Sampler, index), Bound::Sampler(sampler)));
+-        buffers.chain(textures).chain(samplers)
+-    }
+-
+     /// Hold everything bound until `core`'s command buffer completes: a command uses it, and
+     /// the command buffer lists it among its used resources (`used_resources.rs`). Once while it
+     /// binds the same objects: where `core` retained the table before and it binds exactly the
+@@ -928,27 +910,71 @@
+     /// the table's order, as one hold of them all went.
+     pub(super) fn retain(&self, core: &mut EncoderCore) {
+         let mut retained = lock(&self.retained.0);
+-        let RetainedBy { core: by, bound } = &mut *retained;
+-        let same_core = *by == Some(core.id());
+-        let now = self.bound().map(|(slot, object)| (slot, object.address()));
+-        if same_core && bound.iter().copied().eq(now) {
+-            return;
+-        }
+-        let keys = self.buffers.values().map(|(b, _)| b.identity().key);
+-        let texture_keys = self.textures.values().map(Texture::use_key);
+-        core.touch_keys(keys.chain(texture_keys));
+-        for (slot, object) in self.bound().rev() {
+-            let held = same_core
+-                && bound
+-                    .binary_search_by_key(&slot, |&(slot, _)| slot)
+-                    .is_ok_and(|at| bound[at].1 == object.address());
+-            if !held {
+-                core.retain_shared(object.held());
+-            }
+-        }
+-        bound.clear();
+-        bound.extend(self.bound().map(|(slot, object)| (slot, object.address())));
+-        *by = Some(core.id());
+-        core.device().shared().counts.argument_table_retained();
+-    }
+-}
++        retain_into(
++            (&self.buffers, &self.textures, &self.samplers),
++            &mut retained,
++            core,
++        );
++    }
++
++    /// Retain an exclusively borrowed table without taking its record's mutex.
++    pub(super) fn retain_exclusive(&mut self, core: &mut EncoderCore) {
++        let ArgumentTable {
++            buffers,
++            textures,
++            samplers,
++            retained,
++            ..
++        } = self;
++        let retained = retained
++            .0
++            .get_mut()
++            .unwrap_or_else(std::sync::PoisonError::into_inner);
++        retain_into((buffers, textures, samplers), retained, core);
++    }
++}
++
++fn retain_into(
++    (buffers, textures, samplers): (
++        &BTreeMap<u32, (Buffer, u64)>,
++        &BTreeMap<u32, Texture>,
++        &BTreeMap<u32, (SamplerState, Option<[f32; 2]>)>,
++    ),
++    retained: &mut RetainedBy,
++    core: &mut EncoderCore,
++) {
++    let objects = || {
++        let buffers = buffers
++            .iter()
++            .map(|(&index, (buffer, _))| ((SlotClass::Buffer, index), Bound::Buffer(buffer)));
++        let textures = textures
++            .iter()
++            .map(|(&index, texture)| ((SlotClass::Texture, index), Bound::Texture(texture)));
++        let samplers = samplers
++            .iter()
++            .map(|(&index, (sampler, _))| ((SlotClass::Sampler, index), Bound::Sampler(sampler)));
++        buffers.chain(textures).chain(samplers)
++    };
++    let RetainedBy { core: by, bound } = retained;
++    let same_core = *by == Some(core.id());
++    let now = objects().map(|(slot, object)| (slot, object.address()));
++    if same_core && bound.iter().copied().eq(now) {
++        return;
++    }
++    let keys = buffers.values().map(|(b, _)| b.identity().key);
++    let texture_keys = textures.values().map(Texture::use_key);
++    core.touch_keys(keys.chain(texture_keys));
++    for (slot, object) in objects().rev() {
++        let held = same_core
++            && bound
++                .binary_search_by_key(&slot, |&(slot, _)| slot)
++                .is_ok_and(|at| bound[at].1 == object.address());
++        if !held {
++            core.retain_shared(object.held());
++        }
++    }
++    bound.clear();
++    bound.extend(objects().map(|(slot, object)| (slot, object.address())));
++    *by = Some(core.id());
++    core.device().shared().counts.argument_table_retained();
++}
+diff --git a/crates/metal2vulkan-runtime/src/render.rs b/crates/metal2vulkan-runtime/src/render.rs
+--- a/crates/metal2vulkan-runtime/src/render.rs
++++ b/crates/metal2vulkan-runtime/src/render.rs
+@@ -5823,10 +5823,10 @@
+     /// A draw the encoder records nothing for (`EncoderCore::skips`): what its tables bind is
+     /// held and listed as a recorded draw's is.
+     fn skipped_draw(&mut self) {
+-        self.vertex.retain(&mut self.core);
+-        self.fragment.retain(&mut self.core);
+-        self.object.retain(&mut self.core);
+-        self.mesh.retain(&mut self.core);
++        self.vertex.retain_exclusive(&mut self.core);
++        self.fragment.retain_exclusive(&mut self.core);
++        self.object.retain_exclusive(&mut self.core);
++        self.mesh.retain_exclusive(&mut self.core);
+     }
+ 
+     /// [`draw`](Self::draw) with the heaps' textures resident.
+@@ -7533,10 +7533,10 @@
+         };
+         self.last_retained
+             .retain_draw(&mut self.core, (pipeline, objects, made));
+-        self.vertex.retain(&mut self.core);
+-        self.fragment.retain(&mut self.core);
+-        self.object.retain(&mut self.core);
+-        self.mesh.retain(&mut self.core);
++        self.vertex.retain_exclusive(&mut self.core);
++        self.fragment.retain_exclusive(&mut self.core);
++        self.object.retain_exclusive(&mut self.core);
++        self.mesh.retain_exclusive(&mut self.core);
+         for source in index.into_iter().chain(indirect) {
+             self.core.retain_shared(source.buffer.held());
+         }
