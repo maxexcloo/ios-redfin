@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include "pb.h"
@@ -23,13 +24,23 @@
 #include "sensor.h"
 #include "../wifi/qmi.h"
 
-/* Exercise the real CLI run loop with only service discovery mocked. */
+/* Exercise the real CLI and setup paths with only OS/device discovery boundaries mocked. */
+static int cli_open(void);
+static int cli_device_open(const char *path, int flags, ...);
+static int cli_stat(const char *path, struct stat *status);
+#define rqrtr_open cli_open
+#define open cli_device_open
+#define stat(...) cli_stat(__VA_ARGS__)
+
 static int cli_lookup(int fd, uint32_t service, uint32_t *node, uint32_t *port);
 #define rqrtr_lookup cli_lookup
 #define main sensd_cli_main
 #include "sensd.c"
 #undef main
 #undef rqrtr_lookup
+#undef rqrtr_open
+#undef open
+#undef stat
 
 static int failures;
 #define CHECK(c) do { if (!(c)) { printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); failures++; } } while (0)
@@ -218,6 +229,7 @@ static void test_decoders(void)
 }
 
 /* ---- the fake DSP ---- */
+static int selector_report = -1;
 static size_t resp(uint8_t *out, uint16_t txn)
 {
 	size_t n = hx(out, canned_resp_t1);
@@ -276,6 +288,12 @@ static void fake_dsp(int fd)
 						plen = g.len;
 					}
 			}
+		}
+		if (selector_report >= 0) {
+			char receipt = msg_id == SNS_MSG_ATTR_REQ ? 't' :
+			    msg_id == SNS_MSG_SUID_REQ && plen >= 7 && !memcmp(payload + 2, "accel", 5) ? 'a' : 'x';
+			if (write(selector_report, &receipt, 1) != 1)
+				_exit(6);
 		}
 		fake_send(fd, out, resp(out, m.txn));
 		switch (msg_id) {
@@ -439,12 +457,46 @@ static void test_suid_readiness(void)
 }
 
 /* ---- finite CLI streams: service loss is distinct from a quiet sensor ---- */
+static int selector_fd = -1, selector_motion_fd = -1;
+static int selector_opens, selector_device_opens, selector_marker;
+static int cli_open(void)
+{
+	selector_opens++;
+	if (selector_fd < 0) {
+		stop_flag = 1;
+		errno = ENODEV;
+		return -1;
+	}
+	return dup(selector_fd);
+}
+
+static int cli_device_open(const char *path, int flags, ...)
+{
+	(void)path;
+	(void)flags;
+	selector_device_opens++;
+	if (selector_motion_fd >= 0)
+		return dup(selector_motion_fd);
+	errno = ENODEV;
+	return -1;
+}
+
+static int cli_stat(const char *path, struct stat *status)
+{
+	CHECK(!strcmp(path, "/var/local/sensd.off"));
+	(void)status;
+	errno = ENOENT;
+	return selector_marker ? 0 : -1;
+}
+
 static int lookup_case, lookup_calls;
 static int cli_lookup(int fd, uint32_t service, uint32_t *node, uint32_t *port)
 {
 	(void)fd;
 	CHECK(service == SNS_QMI_SERVICE);
 	lookup_calls++;
+	if (selector_fd >= 0 && lookup_calls == 2)
+		stop_flag = 1; /* Complete real selected-sensor setup, then leave the daemon before streaming. */
 	if ((lookup_case == 1 || lookup_case == 6) && lookup_calls > 1) {
 		errno = lookup_case == 6 ? ECONNRESET : ENOENT;
 		return -1;
@@ -488,6 +540,120 @@ static void test_cli_liveness(void)
 	}
 }
 
+static void reset_selector_cli(void)
+{
+	memset(&opt, 0, sizeof(opt));
+	opt.motion_fd = opt.qrtr_fd = -1;
+	opt.follow = opt.orient = opt.motion = 1;
+	stop_flag = 0;
+	lookup_case = lookup_calls = 0;
+	selector_fd = selector_motion_fd = -1;
+	selector_opens = selector_device_opens = selector_marker = 0;
+}
+
+static void test_daemon_selector(void)
+{
+	char *unknown[] = { "sensd", "--daemon", "--only", "not-a-sensor", NULL };
+	reset_selector_cli();
+	CHECK(sensd_cli_main(4, unknown) == 2);
+	CHECK(selector_opens == 0 && selector_device_opens == 0);
+	char *wrong_mode[] = { "sensd", "--list", "--only", "accel", NULL };
+	reset_selector_cli();
+	CHECK(sensd_cli_main(4, wrong_mode) == 2);
+	CHECK(selector_opens == 0 && selector_device_opens == 0);
+	char *missing[] = { "sensd", "--daemon", "--only", NULL };
+	reset_selector_cli();
+	CHECK(sensd_cli_main(3, missing) == 2);
+	CHECK(selector_opens == 0 && selector_device_opens == 0);
+
+	/* Existing alias resolution is reused, without opening hardware when the marker is set. */
+	char *alias[] = { "sensd", "--daemon", "--only", "light", "--no-motion", "--no-orient", NULL };
+	reset_selector_cli();
+	selector_marker = 1;
+	CHECK(sensd_cli_main(6, alias) == 0 && opt.only == sensor_kind_find("als"));
+	CHECK(selector_opens == 0 && selector_device_opens == 0);
+
+	/* The real daemon discovers SNS and performs the selected sensor's real SUID/attribute exchange. */
+	int sv[2];
+	if (socketpair(AF_UNIX, SOCK_DGRAM, 0, sv) != 0) {
+		CHECK(0);
+		return;
+	}
+	int receipts[2];
+	if (pipe(receipts) != 0) {
+		CHECK(0);
+		close(sv[0]);
+		close(sv[1]);
+		return;
+	}
+	selector_report = receipts[1];
+	pid_t pid = fork();
+	if (pid < 0) {
+		CHECK(pid >= 0);
+		close(sv[0]);
+		close(sv[1]);
+		close(receipts[0]);
+		close(receipts[1]);
+		selector_report = -1;
+		return;
+	}
+	if (pid == 0) {
+		close(receipts[0]);
+		signal(SIGTERM, SIG_DFL);
+		close(sv[0]);
+		fake_dsp(sv[1]);
+		_exit(0);
+	}
+	close(sv[1]);
+	close(receipts[1]);
+	selector_report = -1;
+	fcntl(sv[0], F_SETFL, O_NONBLOCK);
+	reset_selector_cli();
+	selector_fd = sv[0];
+	char *selected[] = { "sensd", "--daemon", "--only", "accel", "--no-motion", "--no-orient", NULL };
+	CHECK(sensd_cli_main(6, selected) == 0);
+	/* One SNS discovery port and one selected-sensor setup port; unselected setup would open more. */
+	CHECK(selector_opens == 2 && lookup_calls == 2);
+	CHECK(selector_device_opens == 0); /* --no-motion must cover the daemon setup path too. */
+	CHECK(opt.only == sensor_kind_find("accel"));
+	close(sv[0]);
+	selector_fd = -1;
+	kill(pid, SIGTERM);
+	int status;
+	CHECK(waitpid(pid, &status, 0) == pid && WIFSIGNALED(status) && WTERMSIG(status) == SIGTERM);
+	char requests[8];
+	CHECK(read(receipts[0], requests, sizeof(requests)) == 2 && !memcmp(requests, "at", 2));
+	close(receipts[0]);
+}
+
+static void test_motion_open_policy(void)
+{
+	reset_selector_cli();
+	opt.motion = 0;
+	open_motion();
+	CHECK(selector_device_opens == 0 && opt.motion_fd == -1);
+	opt.motion = 1;
+	open_motion();
+	open_motion();
+	CHECK(selector_device_opens == 2 && opt.motion_fd == -1); /* Failed opens remain retryable. */
+	int sv[2];
+	if (socketpair(AF_UNIX, SOCK_DGRAM, 0, sv) != 0) {
+		CHECK(0);
+		return;
+	}
+	selector_motion_fd = sv[0];
+	open_motion();
+	CHECK(selector_device_opens == 3 && opt.motion_fd >= 0);
+	open_motion();
+	CHECK(selector_device_opens == 3); /* Keep the established descriptor once open. */
+	if (opt.motion_fd >= 0)
+		close(opt.motion_fd);
+	close(sv[0]);
+	close(sv[1]);
+	selector_motion_fd = -1;
+	opt.motion_fd = -1;
+}
+
 int main(void)
 {
 	setvbuf(stdout, NULL, _IOLBF, 0);
@@ -497,6 +663,8 @@ int main(void)
 	test_exchange();
 	test_suid_readiness();
 	test_cli_liveness();
+	test_daemon_selector();
+	test_motion_open_policy();
 	printf("%s (%d failures)\n", failures ? "FAILED" : "all sensd host tests passed", failures);
 	return failures ? 1 : 0;
 }

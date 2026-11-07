@@ -13,6 +13,7 @@
  *                                off with /var/local/sensd.off
  * Options: --dump (every QMI message in hex), --secs N (stop after N s), --no-motion (print only),
  *          --no-orient (no type-10 orientation samples from accel), --no-follow (daemon: stream everything),
+ *          --only NAME (daemon: discover and stream only this sensor),
  *          --node N --port P (skip the service lookup), --qrtr-fd FD (an inherited fd instead of the device),
  *          --orient-inject [TYPE] (hand each orientation sensd derives to backboardd, below; froze the phone
  *          once: test --orient-set first).
@@ -39,14 +40,15 @@
 #include "sensor.h"
 
 static struct {
+	const struct sensor_kind *only;
 	int motion_fd;
 	int print;		/* 0 none, 1 every sample, 2 summary */
-	int verbose, orient, follow, secs;
+	int verbose, orient, follow, secs, motion;
 	uint32_t node, port;
 	int qrtr_fd;
 	uint64_t written, write_errors;
 	int inject, inject_type;
-} opt = { .motion_fd = -1, .orient = 1, .follow = 1, .qrtr_fd = -1 };
+} opt = { .motion_fd = -1, .orient = 1, .follow = 1, .motion = 1, .qrtr_fd = -1 };
 
 static volatile sig_atomic_t stop_flag;
 static void on_signal(int sig) { (void)sig; stop_flag = 1; }
@@ -193,7 +195,7 @@ static int find_service(int fd, uint32_t *node, uint32_t *port, int quiet)
 
 static void open_motion(void)
 {
-	if (opt.motion_fd >= 0)
+	if (!opt.motion || opt.motion_fd >= 0)
 		return;
 	opt.motion_fd = open(MOTION_DEV, O_RDWR | O_NONBLOCK);
 	if (opt.motion_fd < 0)
@@ -488,6 +490,8 @@ static int cmd_daemon(void)
 		open_motion();
 		int n = 0;
 		for (int i = 0; i < sensor_nkinds; i++) {
+			if (opt.only != NULL && opt.only != &sensor_kinds[i])
+				continue;
 			if (setup(&ss[n], &sensor_kinds[i], 1) == 0)
 				n++;
 		}
@@ -508,16 +512,15 @@ static int cmd_daemon(void)
 static void usage(void)
 {
 	printf("usage: sensd --list | --stream NAME [HZ] | --all | --daemon  [--dump] [--secs N] [--no-motion]\n"
-	    "       [--no-orient] [--no-follow] [--orient-inject [TYPE]] [--node N --port P] [--qrtr-fd FD]\n"
+	    "       [--no-orient] [--no-follow] [--only NAME (daemon only)] [--orient-inject [TYPE]] [--node N --port P] [--qrtr-fd FD]\n"
 	    "       sensd --orient-set N [TYPE] [--secs S]\n"
 	    "NAME: accel gyro als prox compass pressure (or ambient_light proximity mag)\n");
 }
 
 int main(int argc, char **argv)
 {
-	const char *mode = NULL, *name = NULL;
+	const char *mode = NULL, *name = NULL, *only = NULL;
 	float hz = 0;
-	int motion = 1;
 
 	setvbuf(stdout, NULL, _IOLBF, 0);
 	for (int i = 1; i < argc; i++) {
@@ -534,7 +537,9 @@ int main(int argc, char **argv)
 		else if (!strcmp(a, "--secs") && i + 1 < argc)
 			opt.secs = atoi(argv[++i]);
 		else if (!strcmp(a, "--no-motion"))
-			motion = 0;
+			opt.motion = 0;
+		else if (!strcmp(a, "--only") && i + 1 < argc)
+			only = argv[++i];
 		else if (!strcmp(a, "--no-orient"))
 			opt.orient = 0;
 		else if (!strcmp(a, "--orient-inject")) {
@@ -563,6 +568,17 @@ int main(int argc, char **argv)
 		usage();
 		return 2;
 	}
+	if (only != NULL) {
+		if (strcmp(mode, "daemon")) {
+			fprintf(stderr, "sensd: --only requires --daemon\n");
+			return 2;
+		}
+		opt.only = sensor_kind_find(only);
+		if (opt.only == NULL) {
+			fprintf(stderr, "sensd: unknown sensor selection \"%s\"\n", only);
+			return 2;
+		}
+	}
 	signal(SIGINT, on_signal);
 	signal(SIGTERM, on_signal);
 	signal(SIGPIPE, SIG_IGN);
@@ -588,7 +604,7 @@ int main(int argc, char **argv)
 	}
 	env.verbose = opt.verbose;
 	env.orient = opt.orient;
-	if (motion && strcmp(mode, "list"))
+	if (opt.motion && strcmp(mode, "list"))
 		open_motion();
 	if (!strcmp(mode, "list"))
 		return cmd_list();
