@@ -1,0 +1,93 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Max Schaefer <max@excloo.com>
+Date: Sat, 07 Nov 2026 19:57:00 +1100
+Subject: [PATCH] 1059 redfin: probe native geometry without a default surface
+
+CONTROLLED EXPERIMENT, not an established CoreAnimation contract or fix.
+Only sweetfb_native=2 makes selector 3 return success with one output,
+MACH_PORT_NULL. Both framebuffer and HID geometry already treat native as
+nonzero, so mode 2 keeps mode 1's native dimensions without another boot
+argument. Modes 0/1 retain the existing default-surface port path exactly.
+
+The physical fSurface is still created and retained in every mode for the
+console, CPU/GPU fallback and existing physical-display ownership. No other
+selector or nil response changes. Keep the existing slot, three-frame,
+fence, use-count and latch gates; rowkeep1, deadfill1, thermal, camera and
+haptic behaviour are unchanged.
+
+The native 1058 trial had a valid 1080x2340/BPR4352 scanout-slot surface, but
+all 8 logged early rejects referred to the fixed physical default surface
+with mask 1/slot 0. Aggregate windows showed 162 nonslot and 160 held frames,
+with no direct entry or latch. Omitting that default might let CA allocate
+a complete normal backboardd slot chain; successful-null fallback is NOT
+proven by primary consumer source. The pinned public framebuffer below
+instead returns NoMemory when it cannot provide a nonnull default:
+https://github.com/Evsio0n/instantnoodle-xnu/blob/4b3afed623664548bfb09aa8c3eb0afd6dccb5d1/xnu/files/iokit/Kernel/MiniIOMobileFramebuffer.cpp
+
+Prepare a separate temporary native2 image with the matching native ADT.
+Bound first startup/interaction, inspect actual slot geometry, direct
+frames/latches and the physical panel, and return to verified
+canvas-base1058 on blank output, a CA failure or failure of those gates.
+No performance comparison is valid before rendering and direct scanout
+work. The probe is authorised for controlled testing, not activation as a
+normal preset. There is no speed or correctness result for this patch.
+
+Also correct diagnostic p disp: .on without .geom is "armed", not
+"direct". Snapshot under fLock and leave sweet_scan_live() and all its
+internal scheduling/SwapWait/power consumers unchanged.
+
+Provenance: current local patched 1058 source, local 1058 native geometry
+experiment and its private aggregate trial evidence. No external code,
+Apple material or firmware is imported; existing licences stay intact.
+
+---
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -295,7 +295,7 @@
+  * rdar://45025538 bar for 360x800 points). The display is therefore
+  * presented as the iPhone X panel, 1125x2436 (375x812 points @3x), and the
+  * centered 1080x2400 part of it is shown on the 1080x2400 panel.
+- * Boot-arg sweetfb_native=1 presents the real panel size instead.
++ * Boot-arg sweetfb_native=1 presents the real panel size; =2 also probes a null default surface.
+  */
+ #define SWEET_FB_LOGICAL_W              1125
+ #define SWEET_FB_LOGICAL_H              2436
+@@ -330,6 +330,7 @@
+ 	uint64_t      fPhys;
+ 	uint32_t      fWidth, fHeight, fRowBytes;
+ 	uint32_t      fLogicalW, fLogicalH;     /* size reported to userland */
++	bool          fNullDefaultProbe;        /* 1059: sweetfb_native=2 only, unknown CA null-surface contract */
+ 	int32_t       fOffX, fOffY;             /* logical origin of the panel */
+ 	uint32_t      fCornerRadius;    /* panel pixels; boot-arg sweetfb_corner_radius */
+ 	uint32_t      fCornerExt;       /* rows/columns a corner covers */
+@@ -984,6 +985,7 @@
+ 	}
+ 	int native = 0;
+ 	PE_parse_boot_argn("sweetfb_native", &native, sizeof(native));
++	fNullDefaultProbe = native == 2;
+ 	fLogicalW = fWidth;
+ 	fLogicalH = fHeight;
+ 	if (!native && fWidth <= SWEET_FB_LOGICAL_W && fHeight <= SWEET_FB_LOGICAL_H) {
+@@ -3906,7 +3908,11 @@
+ {
+ 	if (end - s >= 4 && !strncmp(s, "disp", 4)) {
+ 		/* 0991: p disp: the display power state, for scripts (tools-claude/redfin-fpsbench.sh) */
+-		IOLog("SWEET FB: display %s (p disp; scanout %s)\n", fPowerOff ? "off" : "on", sweet_scan_live() ? "direct" : "panel buffer");
++		IOLockLock(fLock);
++		bool off = fPowerOff;
++		const char *scanout = sweet_scan.geom ? "direct" : sweet_scan.on ? "armed" : "panel buffer";
++		IOLockUnlock(fLock);
++		IOLog("SWEET FB: display %s (p disp; scanout %s)\n", off ? "off" : "on", scanout);
+ 		return;
+ 	}
+ 	if (end - s >= 5 && !strncmp(s, "phase", 5)) {
+@@ -4917,7 +4923,8 @@
+ 
+ 	switch (selector) {
+ 	case kSweetFBGetLayerDefaultSurface:
+-		out[0] = sweet_surface_port_in_task(fFB->fSurface, fTask);
++		/* Controlled native2 probe: keep the physical surface for the console and fallback paths. */
++		out[0] = fFB->fNullDefaultProbe ? MACH_PORT_NULL : sweet_surface_port_in_task(fFB->fSurface, fTask);
+ 		outCount = 1;
+ 		break;
+ 	case kSweetFBSwapBegin:

@@ -5,3 +5,4 @@ xnu/patches/1055-redfin-physical-backlight-cap.patch whitespace=-blank-at-eol,-s
 xnu/patches/1056-redfin-adsp-awake-state.patch whitespace=-blank-at-eol,-space-before-tab
 xnu/patches/1057-redfin-qrtr-disconnect.patch whitespace=-blank-at-eol,-space-before-tab
 xnu/patches/1058-redfin-native-canvas.patch whitespace=-blank-at-eol,-space-before-tab
+xnu/patches/1059-redfin-native-null-default.patch whitespace=-blank-at-eol,-space-before-tab
