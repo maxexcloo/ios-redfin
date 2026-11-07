@@ -67,7 +67,7 @@ static std::atomic<int64_t> gLiveCpuFast{-1},gLiveEncStat{-1},gLiveFnStat{-1},gL
 // (backboardd command buffers with a framebuffer pass) every render pass and draw as "DB" lines: pipeline functions + label,
 // blend, write mask, viewport, scissor, the position attribute's bounding box (raw and in pixels) and the vertex uniform bytes.
 static std::atomic<int32_t> gDrawboxLeft{0};static std::atomic<uint32_t> gDrawboxSeq{0};
-// g10: SWEET_DEADFILL defaults to 2 (unset); 0 turns it off. Passes: backboardd's, colour 0 an 8-bit unorm single-sample 2D IOSurface
+// SWEET_DEADFILL defaults to 1: keep fill culling; fill-to-clear mode 2 can erase cached glyphs. Passes: backboardd's, colour 0 an 8-bit unorm single-sample 2D IOSurface
 // (the composited framebuffer; +4 in the value: any such texture), no depth/stencil, no visibility buffer; colours 1..7 (CA's memoryless
 // scratch) are allowed. The g9 mode-2 hold demanded colour 0 alone, and every CA pass carries the scratch as colour 1: never held,
 // "cleared 0". Fills: also single-sample, no alpha-to-coverage, cull none, fill mode fill; a fill is dropped only for the next fill of the
@@ -85,7 +85,7 @@ static std::atomic<int32_t> gDrawboxLeft{0};static std::atomic<uint32_t> gDrawbo
 static std::atomic<int64_t> gLiveDeadfill{-1};
 static std::atomic<uint64_t> gDfDeferred{0},gDfDropped{0},gDfCleared{0},gDfPx{0},gDfHeldPasses{0},gDfNoClear{0};static std::atomic<int32_t> gDfCapturing{0};
 static int deadfillMode() {
- static const int env=[]{const char *e=getenv("SWEET_DEADFILL");return e && *e?atoi(e):2;}();   // g10: default 2
+ static const int env=[]{const char *e=getenv("SWEET_DEADFILL");return e && *e?atoi(e):1;}();
  const int64_t live=gLiveDeadfill.load(std::memory_order_relaxed);
  return live>=0?(int)live:env;
 }
