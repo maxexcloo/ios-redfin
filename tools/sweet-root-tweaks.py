@@ -26,6 +26,8 @@ screen (image versions v8-v14 in NOTES.md):
   activation      mobileactivationd data ark seeded; the actual Activated state
                   comes from its Hactivation branch, selected by the /chosen
                   security-status properties in tools/mkadt.py
+  capabilities    invalidate MobileGestalt's cached hardware answers so the next
+                  boot reads the current device tree (camera/flash may be absent)
 """
 import glob, os, plistlib, shutil, sys
 
@@ -122,6 +124,19 @@ def audio(root):
         print('StartRecorderServer off', os.path.relpath(conf, root))
 
 
+def capabilities(root):
+    # A cached flashlight capability makes SpringBoard wait in AVFlashlight for
+    # the capture server disabled by the CPU-only bring-up recipe above.
+    pattern = os.path.join(root, 'private/var/containers/Shared/SystemGroup', '*',
+                           'Library/Caches/com.apple.MobileGestalt.plist')
+    for path in glob.glob(pattern):
+        st = os.stat(path)
+        data = load(path)
+        data['CacheVersion'] = 'sweet-rebuild'
+        save(path, data, st.st_uid, st.st_gid, st.st_mode & 0o7777)
+        print('MobileGestalt: hardware capabilities will rebuild at next boot')
+
+
 def main():
     if len(sys.argv) != 2 or not os.path.isdir(os.path.join(sys.argv[1], 'System/Library/xpc')):
         sys.exit(__doc__)
@@ -130,6 +145,7 @@ def main():
     containers(root)
     activation(root)
     audio(root)
+    capabilities(root)
     merge_pref(root, 'com.apple.migration', {
         'LastSystemVersion': BUILD,
         'DMUserDataDisposition': {'SyntheticDidUpgrade': False, 'buildVersion': BUILD}})

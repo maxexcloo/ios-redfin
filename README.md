@@ -100,7 +100,31 @@ Google's/Qualcomm's files, or data from your own phone.
   Mesa and metal2vulkan checkouts for `tools/build-turnip-ios.sh` and `tools/build-m2v-bridge.sh` (pins in the
   script headers), and dropbear, toybox and dash built for iOS (HANDOFF.md, "SSH into iOS works").
 
-## Run it
+## Run It
+
+For this checkout's actual state and working baseline, read
+[HANDOFF-REDFIN.md](HANDOFF-REDFIN.md) first. The working-feature claims above
+are upstream results, not verification of this local installation. Its root
+builder produces a CPU-only bring-up image; later GPU/audio installation was
+manual and is absent from the saved image.
+
+A minimal diagnostic image can be built without touching a phone:
+
+```sh
+NOBOOT=1 bash tools/redfin-boot.sh minimal xnu/out-rk5a/kernel.development.sweet
+```
+
+This uses a local preserved kernel; a fresh clone needs a kernel build first.
+The helper generates its own ADT, defaults to CPU rendering with touch enabled,
+and omits camera/flash advertisement and direct scanout. Omit `NOBOOT=1` to
+build and temporarily boot one connected Pixel 5. Multiple devices and other
+products are refused. The CPU profile reached a responsive UI after invalidating MobileGestalt’s stale
+camera/flash cache; unlock, Settings and touch were confirmed on the phone. The
+root tweaks now invalidate that cache during image preparation. Performance and
+graphics still need the GPU profile tested.
+
+The full upstream configuration below requires the extra phone-side components
+listed above and in the rk5a manifest.
 
 The kernel needs Xcode 15's `iig` in the original recipe, but patch 0082 adds `IORPC.kernelContent` for
 Xcode 16+ `iig`, so the CI runs on `macos-15` (macos-14 has been retired by GitHub).

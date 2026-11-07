@@ -14,29 +14,40 @@
 #   GPUFREQ=1..4   sweetgpufreq: 275 / 400 / 500 (default 3) / 625 MHz    e.g. r19c: PRESET=camera GPUFREQ=4
 #   NOBOOT=1       build work/boot/NAME.img only (no fastboot)
 #   GPUFW=DIR      Adreno firmware for GPU>=1 (default fw-redfin/, tools/redfin-gpufw.sh)
+# Default: CPU rendering, touch, no camera/flash advertisement, direct scanout off.
+# The camera preset requires camera tables and a working capture plug-in on the phone.
 # Read the result from the klog: "present: 300 frames in N ms = F/s (single buffer|flip, gpufreq G); ... put off,
 # flips, late" (0942) and "5s: ... GPU busy" lines.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if [ "$#" -lt 2 ]; then
+	echo "usage: $0 NAME KERNEL [BOOT-ARGS...]" >&2
+	exit 1
+fi
 name=$1 kernel=$2; shift 2
 P=$PWD/work/boot
-base="debug=0xc serial=3 cpus=8 keepsyms=1 -enable_kprintf_spam -noprogress rd=ufsroot0 ufsrw=1 rootrw=1"
+mkdir -p "$P"
+base="debug=0xc serial=3 cpus=8 keepsyms=1 rd=ufsroot0 ufsrw=1 rootrw=1"
 base="$base unentitled_ios_sim_launch=1 ignition_level=1 wdt_test=no_user_checkin launchd_unsecure_cache=1"
-base="$base wdt=-1 sweetfb_noconsole=1 sweetfb_hz=60 ufslogsecs=2 flamereboot=1800"
-base="$base flametouch=0 sweettouch=0 sweetkeys=1 sweetusb=2 sweetgpu=0 sweetgpufreq=3 sweetgpudelay=0 sweetfb_thread=0 sweetmtl=0 sweetddr=0"
-base="$base sweetbattery=1 sectouch=0"
+base="$base wdt=-1 sweetfb_noconsole=1 sweetfb_hz=90 ufslogsecs=2"
+base="$base flametouch=0 sweetusb=2 sweetgpu=0 sweetgpufreq=3 sweetmtl=0"
+base="$base sweetbattery=1 sectouch=1 sweetfbx=0x107 sectouchx=0xd sweetscanout=0"
+base="$base sweetcam=0 sweetcamdev=0 sweettorch=0"
 # redfin: touch is Samsung sec_ts on SPI SE0 (sectouch=1), so sweettouch/flametouch stay 0.
 # GPU (A620, xnu 0904/0905): sweetgpu=0 sweetmtl=0 = CPU rendering. GPU=1 below = kernel GPU + the GPU
 # present (CA still renders on the CPU); GPU=2 = plus Metal on Turnip (sweetmtl=2, needs the metal2 install);
 # FLIP=1 adds the double-buffered present (sweetfbflip=1). sweetgpufreq: 1 275, 2 400, 3 500, 4 625 MHz.
 if [ "${PRESET:-}" = camera ]; then
 	GPU=${GPU:-2}
-	base=$(printf '%s\n' $base | grep -v -e '^sectouch=' | tr '\n' ' ')
-	base="$base sectouch=1 sectouchdelay=20 sweethaptic=2 sweetbl=1 sweetnull=backboardd,SpringBoard,mediaserverd"
+	base=$(printf '%s\n' $base | grep -v -e '^sweetcam=' -e '^sweetcamdev=' -e '^sweettorch=' | tr '\n' ' ')
+	base="$base sweethaptic=2 sweetbl=1 sweetnull=backboardd"
 	base="$base sweettorch=2 sweetcam=2 sweetcamdev=1"
+	python3 -I tools/mkadt.py "$P/$name.adt" --highmem --camera --flash --backlight
 elif [ -n "${PRESET:-}" ]; then
 	echo "unknown PRESET=$PRESET (camera)" >&2
 	exit 1
+else
+	python3 -I tools/mkadt.py "$P/$name.adt" --highmem
 fi
 GPU=${GPU:-0}
 if [ "$GPU" -ge 1 ]; then
@@ -72,15 +83,28 @@ for a in "$@"; do
 done
 cmdline="$base $*"
 echo "$cmdline" > "$P/$name.cmdline"
-GPUFWARG=
-[ -n "${GPUFW:-}" ] && [ "$GPU" -ge 1 ] && GPUFWARG="--gpufw $GPUFW"
-python3 -I tools/mkpayload.py "$kernel" "$P/redfin-hi.adt" "$P/$name.payload" --cmdline "$cmdline" $GPUFWARG >/dev/null
+if [ "$GPU" -ge 1 ]; then
+	python3 -I tools/mkpayload.py "$kernel" "$P/$name.adt" "$P/$name.payload" --cmdline "$cmdline" --gpufw "$GPUFW" >/dev/null
+else
+	python3 -I tools/mkpayload.py "$kernel" "$P/$name.adt" "$P/$name.payload" --cmdline "$cmdline" >/dev/null
+fi
 shim/build.sh "$P/$name.payload" "$P/$name.img" >/dev/null
 if [ "${NOBOOT:-0}" = 1 ]; then
 	echo "$(date +%T) built $P/$name.img: $cmdline"
 	exit 0
 fi
 echo "$(date +%T) built $name.img; waiting for fastboot"
-until fastboot devices | grep -q fastboot; do sleep 2; done
-fastboot boot "$P/$name.img"
+until [ -n "$(fastboot devices)" ]; do sleep 2; done
+devices=$(fastboot devices)
+[ "$(printf '%s\n' "$devices" | wc -l | tr -d ' ')" = 1 ] || {
+	echo "More than one fastboot device connected; refusing to select another port's phone." >&2
+	exit 1
+}
+device=$(printf '%s\n' "$devices" | awk '{print $1}')
+product=$(fastboot -s "$device" getvar product 2>&1 | awk '$1 == "product:" {print $2}')
+[ "$product" = redfin ] || {
+	echo "Connected fastboot device is not redfin; refusing to boot." >&2
+	exit 1
+}
+fastboot -s "$device" boot "$P/$name.img"
 echo "$(date +%T) booted $name: $cmdline"

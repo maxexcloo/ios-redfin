@@ -112,6 +112,15 @@ jobs:
           sed -i '' 's/^    patches$/    true # patched by the cache step/' build.sh
           rm -rf build/xnu.obj/kernel.* fakeroot/System/Library/Kernels/kernel.*
 
+      - name: Build
+        working-directory: dxb
+        env:
+          # keep going after errors so one run reports every compile failure
+          MAKEFLAGS: ${{ inputs.keep_going == 'false' && '' || '-k' }}
+        run: |
+          set -o pipefail
+          bash build.sh 2>&1 | tee "$RUNNER_TEMP/build.log"
+
       # Runs on the cached path and the full one, after the source is patched either way.
       # build.sh's patches() only warns, so a malformed or conflicting patch used to leave a
       # green build whose kernel silently lacked it: 1047 shipped as "corrupt patch at :40".
@@ -123,10 +132,9 @@ jobs:
         run: |
           set -euo pipefail
           log=$RUNNER_TEMP/patch.log
-          if [ ! -s "$log" ]; then
-            echo "no patch log (full build): checking the tree for this run's newest patch"
-            exit 0
-          fi
+          # Cold builds apply patches during Build; cached builds use the prep log.
+          [ -s "$log" ] || log=$RUNNER_TEMP/build.log
+          [ -s "$log" ] || { echo "::error::No patch application log"; exit 1; }
           # A patch that is merely redundant (its files are already there from an earlier
           # patch) is harmless; a corrupt or conflicting one is not, and must never pass.
           # 0160 re-adds the DriverKit headers 0030 and friends already provide.
@@ -143,15 +151,6 @@ jobs:
           done
           echo "$(printf '%s\n' "$applied" | wc -l | tr -d ' ') patches applied, $bad missing"
           [ "$bad" = 0 ]
-
-      - name: Build
-        working-directory: dxb
-        env:
-          # keep going after errors so one run reports every compile failure
-          MAKEFLAGS: ${{ inputs.keep_going == 'false' && '' || '-k' }}
-        run: |
-          set -o pipefail
-          bash build.sh 2>&1 | tee "$RUNNER_TEMP/build.log"
 
       # On a failed build: the compiler's errors to branch builds-xnu-log (fetchable with git where logs are not)
       - name: Publish the build errors

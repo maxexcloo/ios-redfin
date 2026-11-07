@@ -1,12 +1,12 @@
-# Working on ios-flame
+# Working on ios-redfin
 
 - Read `README.md`, then `NOTES.md` (hardware facts, ABL boot image rules, test loop) and the top of
-  `HANDOFF.md` ("Start here": the newest state, newest first). ios-sweet's history is in `docs/ios-sweet/`.
-- Record each milestone in `HANDOFF.md` under "Start here", with the kernel number, the boot args, exact
+  `HANDOFF-REDFIN.md` (current local state; older Flame history is in `HANDOFF.md`). ios-sweet's history is in `docs/ios-sweet/`.
+- Record each milestone in `HANDOFF-REDFIN.md`, with the kernel number, the boot args, exact
   results and what is still open. Keep observations apart from guesses. A new kernel patch is one line in
-  `NOTES.md` ("Flame patches") too.
+  `NOTES.md` ("Redfin patches") too.
 - Kernel changes: edit `work/dxb/xnu` (a git repo, HEAD = baseline + applied patches), commit, and save the diff
-  as the next `xnu/patches/NNNN-flame-*.patch`. `tools/build-xnu.sh` builds locally in minutes.
+  as the next `xnu/patches/NNNN-redfin-*.patch`. `tools/build-xnu.sh` builds locally in minutes.
 - Device bring-up uses temporary `fastboot boot` images. Never flash ABL, XBL, TZ, modem or other firmware
   partitions, never relock the bootloader on modified software, and keep the partition backups intact.
   Confirm each destructive step with the user before running it. `RECOVERY.md` restores stock Android.
