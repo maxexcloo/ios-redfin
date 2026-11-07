@@ -1,0 +1,148 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Max Schaefer <max@excloo.com>
+Date: Sat, 07 Nov 2026 19:19:11 +1100
+Subject: [PATCH] 1058 redfin: keep direct scanout at the selected canvas size
+
+Couple the existing opt-in sweetfb_native=1 geometry to scanout-slot
+eligibility, automatic/direct swap eligibility and QSEED's source size.
+Use the existing AppleCLCD owner's fLogicalW/H for surface eligibility,
+not another copy of the native dimensions. sweet_fb_instance is published
+before display registration; the earlier physical default surface is
+created directly, not through the user-surface slot-eligibility path.
+
+QSEED takes explicit source dimensions. Direct frames and occupied-slot
+diagnostics pass the actual surface size. Fixed test patterns pass the
+same 1125x2436 dimensions they were generated with. At native size retain
+the existing scaler at unity, fence/latch/use-count gating, rowkeep1,
+slot capacity and renderer behaviour. Default logical size stays 1125x2436.
+No touch change is required: SweetHID already uses sweetfb_native.
+
+This is a coupled, unactivated experiment: pair the boot argument with
+mkadt.py --native-canvas, and observe actual 1080x2340 compositor surfaces
+and 64-byte-aligned row pitch (normally 4352) before any performance test.
+Never force or relax archived-row preservation to obtain direct scanout.
+Native UI geometry and safe areas need device verification; there is no
+Redfin rendering-correctness or performance result for this patch yet.
+
+Provenance: current Redfin patched 1057 build tree, extending the local
+0975/0976 slot/direct-scanout paths, 1046 automatic gate and existing
+sweetfb_native framebuffer/HID selection. Existing copyright/licences
+remain unchanged; no external scaler algorithm is imported.
+
+---
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -462,6 +462,13 @@
+ static void sweet_scan_set(AppleCLCD *fb, bool on, const char *why);
+ 
+ static AppleCLCD *sweet_fb_instance;    /* 0943: for the poke commands (p fc, p hz) */
++
++/* Display geometry has one owner. User surfaces arrive after this display registers. */
++bool
++sweet_framebuffer_is_display_size(uint32_t width, uint32_t height)
++{
++	return sweet_fb_instance != NULL && width == sweet_fb_instance->fLogicalW && height == sweet_fb_instance->fLogicalH;
++}
+ static volatile bool sweet_scan_auto_armed;     /* 1046: sweetscanout=2 (default): direct on at the first slot swap */
+ static void sweet_scan_auto(AppleCLCD *fb, const uint8_t *rec);
+ 
+@@ -2722,9 +2729,8 @@
+  * mode needs no coefficient tables (as upstream DPU: _dpu_plane_setup_scaler3, dpu_hw_setup_scaler3).
+  */
+ static bool
+-sweet_mdp_scale_regs(uint32_t pa, uint32_t stride, bool quiet)
+-{
+-	const uint32_t sw = SWEET_FB_LOGICAL_W, sh = SWEET_FB_LOGICAL_H;
++sweet_mdp_scale_regs(uint32_t pa, uint32_t stride, uint32_t sw, uint32_t sh, bool quiet)
++{
+ 	uint32_t ver = sweet_mdp_rd(MDP_VIG(0) + QS_VERSION), ver1 = sweet_mdp_rd(MDP_VIG(1) + QS_VERSION);
+ 	uint32_t dw0 = sweet_mdp.old[0][MR_OUT_SIZE] & 0xffff, dw1 = sweet_mdp.old[1][MR_OUT_SIZE] & 0xffff;
+ 	uint32_t dh = sweet_mdp.old[0][MR_OUT_SIZE] >> 16, W = dw0 + dw1;
+@@ -2786,7 +2792,8 @@
+ 		IOLog("SWEET MDP: scale: no pattern\n");
+ 		return false;
+ 	}
+-	if (!sweet_mdp_scale_regs((uint32_t)SWEET_MDP_TEST_PA, SWEET_MDP_SURF_STRIDE, false)) {
++	if (!sweet_mdp_scale_regs((uint32_t)SWEET_MDP_TEST_PA, SWEET_MDP_SURF_STRIDE,
++	    SWEET_FB_LOGICAL_W, SWEET_FB_LOGICAL_H, false)) {
+ 		return false;
+ 	}
+ 	sweet_mdp_flush("scale");
+@@ -2804,7 +2811,8 @@
+ 		/* 0979: an empty slot shows the test pattern from its own memory (does the MDP read this RAM?) */
+ 		IOMemoryDescriptor *md = sweet_surface_scan_md(slot, &pa);
+ 		bool ok = md != NULL && sweet_mdp_pattern(SWEET_FB_LOGICAL_W, SWEET_FB_LOGICAL_H, SWEET_MDP_SURF_STRIDE,
+-		    SWEET_FB_LOGICAL_W / 2 + 1, md) && sweet_mdp_scale_regs((uint32_t)pa, SWEET_MDP_SURF_STRIDE, false);
++		    SWEET_FB_LOGICAL_W / 2 + 1, md) && sweet_mdp_scale_regs((uint32_t)pa, SWEET_MDP_SURF_STRIDE,
++		    SWEET_FB_LOGICAL_W, SWEET_FB_LOGICAL_H, false);
+ 		OSSafeReleaseNULL(md);
+ 		if (!ok) {
+ 			IOLog("SWEET MDP: ca: no surface and no memory in scanout slot %u (PA %#llx; boot-arg sweetscanout=1|2)\n",
+@@ -2816,7 +2824,7 @@
+ 		IOLog("SWEET MDP: ca: slot %u is empty: the test pattern from its memory (PA %#llx) on screen\n", slot, pa);
+ 		return true;
+ 	}
+-	uint32_t id = s->id, bpr = s->bytesPerRow, seed = s->state != NULL ?
++	uint32_t id = s->id, bpr = s->bytesPerRow, width = s->width, height = s->height, seed = s->state != NULL ?
+ 	    *(volatile uint32_t *)((uint8_t *)s->state->getBytesNoCopy() + 0xc) : 0;
+ 	if (OSDynamicCast(IOBufferMemoryDescriptor, s->memory) != NULL) {
+ 		uintptr_t va = s->kernelAddress();
+@@ -2825,7 +2833,7 @@
+ 		}
+ 	}
+ 	s->release();
+-	bool ok = sweet_mdp_scale_regs((uint32_t)pa, bpr, false);
++	bool ok = sweet_mdp_scale_regs((uint32_t)pa, bpr, width, height, false);
+ 	if (ok) {
+ 		sweet_mdp_flush("ca");
+ 		sweet_mdp_pipes("ca");
+@@ -3084,7 +3092,7 @@
+ 	bool ok = sweet_mdp_take(fb, "scanout");
+ 	if (ok) {
+ 		sweet_mdp.scan = true;
+-		if (!sweet_mdp_scale_regs((uint32_t)s->scanPA, s->bytesPerRow, true)) {
++		if (!sweet_mdp_scale_regs((uint32_t)s->scanPA, s->bytesPerRow, s->width, s->height, true)) {
+ 			sweet_mdp_restore_locked(fb, "scanout geometry refused");
+ 			ok = false;
+ 		} else {
+@@ -3138,7 +3146,7 @@
+ 		uint32_t id = l < SWEET_FB_LAYERS ? get32(rec, 0x54 + 4 * l) : 0;
+ 		s = id != 0 ? sweet_surface_copy(id) : NULL;
+ 	}
+-	if (s == NULL || s->scanSlot == 0 || s->width != SWEET_FB_LOGICAL_W || s->height != SWEET_FB_LOGICAL_H ||
++	if (s == NULL || s->scanSlot == 0 || s->width != fb->fLogicalW || s->height != fb->fLogicalH ||
+ 	    (sweet_scan.geom && s->bytesPerRow != sweet_scan.stride)) {
+ 		static uint32_t logs;
+ 		if (logs < 8) {
+@@ -3822,7 +3830,7 @@
+ 	if (s == NULL) {
+ 		return;
+ 	}
+-	bool slot = s->scanSlot != 0 && s->width == SWEET_FB_LOGICAL_W && s->height == SWEET_FB_LOGICAL_H;
++	bool slot = s->scanSlot != 0 && s->width == fb->fLogicalW && s->height == fb->fLogicalH;
+ 	uint32_t sid = s->id, n = s->scanSlot;
+ 	s->release();
+ 	if (!slot || !OSCompareAndSwap8(1, 0, (volatile UInt8 *)&sweet_scan_auto_armed)) {
+--- a/iokit/Kernel/arm/SweetSurface.cpp
++++ b/iokit/Kernel/arm/SweetSurface.cpp
+@@ -1067,7 +1067,7 @@
+ 	s->parentID = args->scalarInputCount > 0 ? (uint32_t)args->scalarInput[0] : 0;
+ 	ret = sweet_surface_layout(s, props);
+ 	const char *notSlot = "-";
+-	bool panelSized = ret == kIOReturnSuccess && s->width == 1125 && s->height == 2436;
++	bool panelSized = ret == kIOReturnSuccess && sweet_framebuffer_is_display_size(s->width, s->height);
+ 	if (panelSized) {
+ 		notSlot = sweet_scan_claim(s);
+ 	}
+--- a/iokit/Kernel/arm/SweetSurface.h
++++ b/iokit/Kernel/arm/SweetSurface.h
+@@ -55,6 +55,9 @@
+ /* Retained surface for an id, or NULL. */
+ SweetSurface *sweet_surface_copy(uint32_t id);
+ 
++/* The registered framebuffer's logical size, including sweetfb_native. False before it is ready. */
++bool sweet_framebuffer_is_display_size(uint32_t width, uint32_t height);
++
+ /*
+  * 0975: scanout slots (boot-arg sweetscanout, SweetSurface.cpp). The surface in slot n, retained, and the slot's
+  * address (also when it is free: slots are never given back), or NULL.

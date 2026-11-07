@@ -5,7 +5,7 @@ Only what the early boot path actually reads (see ios-sweet's NOTES.md); every
 MMIO address comes from the flame (Pixel 4, SM8150) live FDT. The kernel's
 built-in drivers still match the Redmi names (xiaomi,sweet, qcom,kryo470,
 sweet,display), so those stay next to the flame ones.
-Usage:  mkadt.py OUT.adt [--dump] [--qemu] [--highmem] [--camera] [--flash] [--backlight] [--gamut]
+Usage:  mkadt.py OUT.adt [--dump] [--qemu] [--highmem] [--camera] [--flash] [--backlight] [--gamut] [--native-canvas]
 """
 import hashlib, os, struct, sys
 
@@ -139,13 +139,15 @@ def node(name, props=(), children=()):
     return n
 
 
-def build(seed=None, qemu=False, highmem=False, camera=False, flash=False, backlight=False, gamut=False):
+def build(seed=None, qemu=False, highmem=False, camera=False, flash=False, backlight=False, gamut=False, native_canvas=False):
     """qemu=True: same tree, but with QEMU virt's GIC addresses and CNTFRQ (tools/qemu-sweet.py).
     camera=True: /arm-io/isp (Camera.app on the home screen); flash=True: /product/camera flash
     (the flashlight in Control Center). See CAMERA below.
-    gamut=True (--gamut, opt-in): /product artwork-display-gamut P3 -> sRGB (see below)."""
+    gamut=True (--gamut, opt-in): /product artwork-display-gamut P3 -> sRGB (see below).
+    native_canvas=True: physical panel canvas; requires matching kernel sweetfb_native=1."""
     phys_base, mem_size = (HIGH_PHYS_BASE, HIGH_MEM_SIZE) if highmem else (PHYS_BASE, MEM_SIZE)
     gicd, gicr, timebase = (QEMU_GICD, QEMU_GICR, QEMU_TIMEBASE) if qemu else (GICD, GICR, TIMEBASE)
+    canvas_w, canvas_h = (FB_W, FB_H) if native_canvas else (1125, 2436)
     seed = seed if seed is not None else os.urandom(64)
     phandle = iter(range(1, 1000))
     ph = lambda: ('AAPL,phandle', u32(next(phandle)))
@@ -273,8 +275,8 @@ def build(seed=None, qemu=False, highmem=False, camera=False, flash=False, backl
             ph(),
             ('device_type', cstr('display-subsystem')),
             ('compatible', cstr('sweet,display')),
-            ('canvas-width', u32(1125)),
-            ('canvas-height', u32(2436)),
+            ('canvas-width', u32(canvas_w)),
+            ('canvas-height', u32(canvas_h)),
         ])] + ([isp_node(ph)] if camera else []))
 
     fbcon = node('sweet-fbcon', [
@@ -346,7 +348,7 @@ def build(seed=None, qemu=False, highmem=False, camera=False, flash=False, backl
 if __name__ == '__main__':
     root = build(qemu='--qemu' in sys.argv, highmem='--highmem' in sys.argv,
                  camera='--camera' in sys.argv, flash='--flash' in sys.argv, backlight='--backlight' in sys.argv,
-                 gamut='--gamut' in sys.argv)
+                 gamut='--gamut' in sys.argv, native_canvas='--native-canvas' in sys.argv)
     blob = adt.serialize(root)
     open(sys.argv[1], 'wb').write(blob)
     if '--dump' in sys.argv:
