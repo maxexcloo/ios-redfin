@@ -1,0 +1,151 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Max Schaefer <max@excloo.com>
+Date: Sat, 07 Nov 2026 17:38:47 +1100
+Subject: [PATCH] Enforce the brightness cap at physical DMA submission
+
+The new provider's100nit cap emitted DAC204, but a following framebuffer
+250nit request emitted DAC513. Share the physical DAC limit with every
+blSet caller and clamp a pending brightness packet immediately before its
+DMA trigger, after the shared DSI lock and hardware waits.
+
+Return the transmitted level to the worker so it records the real level
+and can restore an uncapped target when the cap increases. Hold the
+brightness lock only through the final packet rewrite and trigger, never
+through the MDP or completion waits. One packet submitted before a cap
+change may finish asynchronously; later submissions obey the new cap.
+
+Keep the legacy full range, existing coalescing/failure behaviour, thermal
+protections and camera-off profile. No new PMIC or diagnostic interface.
+
+---
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -359,7 +359,7 @@
+ 	void          publishModes(void);
+ 	void          publishSourceLimits(void);     /* 0990 */
+ 	bool          setHz(uint32_t hz, bool tc);
+-	bool          dsiSend(const uint8_t *pkt, uint32_t size);
++	bool          dsiSend(const uint8_t *pkt, uint32_t size, uint32_t *brightness = NULL);
+ 	bool          cpuWrote(SweetSurface *s);
+ 	void          statShown(uint64_t swapAbs);
+ 	void          statLine(uint64_t now);
+@@ -438,11 +438,13 @@
+ 	volatile uint32_t *fBlPkt;
+ 	IOLock        *fBlLock;
+ 	uint32_t       fBlWant, fBlHave;        /* panel DBV; fBlHave 0 = not sent yet */
++	uint32_t       fBlLimitDAC;            /* physical cap, under fBlLock */
+ 	uint32_t       fBlFails;
+ 	bool           fBlReq;
+ 	bool           blStart(void);
+-	bool           dsiDcs(const uint8_t *payload, uint32_t len);
++	bool           dsiDcs(const uint8_t *payload, uint32_t len, uint32_t *brightness = NULL);
+ 	void           blSet(uint32_t level);
++	void           blLimit(uint32_t level);
+ 	static void    blLoop(void *arg);
+ 	IOReturn setProperties(OSObject *properties) APPLE_KEXT_OVERRIDE;
+ 	void copyRow(uint32_t x, uint32_t y, const uint32_t *src, uint32_t n);
+@@ -535,7 +537,7 @@
+ }
+ 
+ bool
+-AppleCLCD::dsiDcs(const uint8_t *payload, uint32_t len)
++AppleCLCD::dsiDcs(const uint8_t *payload, uint32_t len, uint32_t *brightness)
+ {
+ 	if (fDsi == NULL || fBlPkt == NULL || len == 0 || len > 28) {
+ 		return false;
+@@ -548,7 +550,7 @@
+ 	pkt[2] = 0x39;
+ 	pkt[3] = 0xc0;
+ 	memcpy(pkt + 4, payload, len);
+-	return dsiSend(pkt, (4 + len + 3) & ~3u);
++	return dsiSend(pkt, (4 + len + 3) & ~3u, brightness);
+ }
+ 
+ /*
+@@ -556,7 +558,7 @@
+  * autorefresh frames. One at a time: brightness (blLoop) and the refresh rate (setHz) share it.
+  */
+ bool
+-AppleCLCD::dsiSend(const uint8_t *pkt, uint32_t size)
++AppleCLCD::dsiSend(const uint8_t *pkt, uint32_t size, uint32_t *brightness)
+ {
+ 	if (fDsi == NULL || fBlPkt == NULL || size < 4 || size > 32 || (size & 3)) {
+ 		return false;
+@@ -582,7 +584,18 @@
+ 	for (int i = 0; i < 200 && (dsi_rd(fDsi, DSI_STATUS0) & 4); i++) {
+ 		IODelay(100);                                   /* between two frames */
+ 	}
+-	dsi_wr(fDsi, DSI_DMA_SW_TRIGGER, 1);
++	/* Order a brightness submission against cap updates after all hardware waits. A packet
++	 * already submitted may complete; no later submission can exceed the current physical cap. */
++	if (brightness != NULL) {
++		IOLockLock(fBlLock);
++		*brightness = *brightness > fBlLimitDAC ? fBlLimitDAC : *brightness;
++		/* DCS 0x51: payload bytes [command, level high, level low, padding]. */
++		fBlPkt[1] = (fBlPkt[1] & 0xff0000ffu) | ((*brightness >> 8) << 8) | ((*brightness & 0xffu) << 16);
++		dsi_wr(fDsi, DSI_DMA_SW_TRIGGER, 1);
++		IOLockUnlock(fBlLock);
++	} else {
++		dsi_wr(fDsi, DSI_DMA_SW_TRIGGER, 1);
++	}
+ 	bool done = false;
+ 	for (int i = 0; i < 50 && !done; i++) {
+ 		done = (dsi_rd(fDsi, DSI_INT_CTRL) & 1) != 0;
+@@ -618,7 +631,7 @@
+ 			continue;
+ 		}
+ 		uint8_t cmd[3] = { 0x51, (uint8_t)(want >> 8), (uint8_t)want };
+-		bool ok = fb->dsiDcs(cmd, sizeof(cmd));
++		bool ok = fb->dsiDcs(cmd, sizeof(cmd), &want);
+ 		static uint32_t logs;
+ 		if (logs++ < 12 || !ok) {
+ 			IOLog("SWEET BL: panel level %#x %s (dsi ctrl %#x status %#x)\n", want, ok ? "set" : "NO DMA DONE",
+@@ -640,17 +653,36 @@
+ 	if (fBlLock == NULL) {
+ 		return;
+ 	}
++	IOLockLock(fBlLock);
+ 	level = level < SWEET_BL_MIN ? SWEET_BL_MIN : level > SWEET_BL_MAX ? SWEET_BL_MAX : level;
+-	IOLockLock(fBlLock);
+-	fBlWant = level;
++	fBlWant = level > fBlLimitDAC ? fBlLimitDAC : level;
+ 	fBlReq = true;
+ 	IOLockWakeup(fBlLock, &fBlReq, false);
+ 	IOLockUnlock(fBlLock);
+ }
+ 
++/* Mode1 keeps the full DAC range. Only the mode2 provider lowers this physical limit. */
++void
++AppleCLCD::blLimit(uint32_t level)
++{
++	if (fBlLock == NULL) {
++		return;
++	}
++	level = level < SWEET_BL_MIN ? SWEET_BL_MIN : level > SWEET_BL_MAX ? SWEET_BL_MAX : level;
++	IOLockLock(fBlLock);
++	fBlLimitDAC = level;
++	if (fBlWant > level) {
++		fBlWant = level;
++		fBlReq = true;
++		IOLockWakeup(fBlLock, &fBlReq, false);
++	}
++	IOLockUnlock(fBlLock);
++}
++
+ bool
+ AppleCLCD::blStart(void)
+ {
++	fBlLimitDAC = SWEET_BL_MAX;
+ 	uint32_t on = 1;
+ 	PE_parse_boot_argn("sweetbl_dcs", &on, sizeof(on));
+ 	if (!on) {
+@@ -879,6 +911,9 @@
+ 			fCap16 = (uint32_t)(v < low ? low : v > high ? high : v);
+ 		}
+ 		if (nits != NULL || cap != NULL) {
++			uint32_t capLevel = SWEET_BL_MIN + (uint32_t)(((uint64_t)fCap16 - low) *
++			    (SWEET_BL_MAX - SWEET_BL_MIN) / (high - low));
++			fFB->blLimit(capLevel);
+ 			uint32_t actual = fNits16 < fCap16 ? fNits16 : fCap16;
+ 			uint32_t level = SWEET_BL_MIN + (uint32_t)(((uint64_t)actual - low) *
+ 			    (SWEET_BL_MAX - SWEET_BL_MIN) / (high - low));
