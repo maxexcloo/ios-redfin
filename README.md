@@ -118,10 +118,21 @@ This uses a local preserved kernel; a fresh clone needs a kernel build first.
 The helper generates its own ADT, defaults to CPU rendering with touch enabled,
 and omits camera/flash advertisement and direct scanout. Omit `NOBOOT=1` to
 build and temporarily boot one connected Pixel 5. Multiple devices and other
-products are refused. The CPU profile reached a responsive UI after invalidating MobileGestalt’s stale
-camera/flash cache; unlock, Settings and touch were confirmed on the phone. The
-root tweaks now invalidate that cache during image preparation. Performance and
-graphics still need the GPU profile tested.
+products are refused. The CPU profile reached a responsive UI after invalidating
+MobileGestalt’s stale camera/flash cache; unlock, Settings and touch were confirmed
+on the phone. The root tweaks now invalidate that cache during image preparation.
+The Metal profile also boots. Direct scanout made interaction noticeably smoother
+in the user's comparison, but graphical defects, stutter and a recovered temporary
+stall remain. This profile has not passed stability testing.
+
+Experimental accelerated UI configuration on the prepared phone:
+
+```sh
+PRESET=ui bash tools/redfin-boot.sh working xnu/out-rk5a/kernel.development.sweet
+```
+
+This uses Metal, double buffering and direct scanout, while leaving camera and
+flash disabled. It requires SweetMetal2 and the GPU firmware above.
 
 The full upstream configuration below requires the extra phone-side components
 listed above and in the rk5a manifest.

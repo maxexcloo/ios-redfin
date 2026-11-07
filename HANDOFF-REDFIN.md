@@ -41,9 +41,23 @@ Its exact arguments are in `work/boot/minimal.cmdline`; the ADT is
 and direct scanout are disabled. It does not require SweetMetal2.
 
 The working CPU image is the recovery baseline for subsequent experiments.
-`work/boot/accelerated.img` uses the same minimal ADT and kernel with `GPU=2`,
-`FLIP=1` and `GPUFREQ=4`; its live UI/performance test is in progress. It keeps
-camera, flash and direct scanout disabled.
+`work/boot/accelerated.img` enabled Metal and double buffering, but kept direct
+scanout off. It booted, yet the user reported no improvement; one 5 s window
+showed 106 swaps, 61 shown and 45 dropped, with presentation fence waits around
+76 ms. These windows include variable activity and are not a controlled FPS test.
+
+`work/boot/accelerated-direct.img` changed only `sweetscanout=2`. The user
+reported noticeably smoother interaction; live probes confirmed two scanout
+slots and direct presentation, and kernel logs confirmed Turnip/Metal with
+writable shader caches. This is the current live configuration. The user later reported a temporary
+stall that recovered without a reboot. The kernel remained responsive. Logs
+contain a display swap-wait timeout and resumed frames, but do not establish
+that timeout as the cause. This is experimental, not a stable baseline.
+
+`PRESET=ui` reproduces that configuration in the boot helper. The corresponding
+`work/boot/working.img` has the same effective arguments, ADT hardware properties and firmware as
+the tested image. Graphical defects and some stutter remain; no sustained frame
+rate or stability claim has been established. Camera and flash remain disabled.
 
 Build without connecting a phone:
 
@@ -51,8 +65,14 @@ Build without connecting a phone:
 NOBOOT=1 bash tools/redfin-boot.sh minimal xnu/out-rk5a/kernel.development.sweet
 ```
 
-Omit `NOBOOT=1` to build and temporarily boot. The helper refuses multiple fastboot
-devices or any product other than `redfin`, and targets the checked device.
+Experimental accelerated UI profile (requires the installed SweetMetal2 bundle and firmware):
+
+```sh
+PRESET=ui bash tools/redfin-boot.sh working xnu/out-rk5a/kernel.development.sweet
+```
+
+Omit `NOBOOT=1` from the diagnostic command to build and temporarily boot.
+The helper refuses multiple fastboot devices or any product other than `redfin`, and targets the checked device.
 Camera support is explicitly opt-in with `PRESET=camera`; it needs the capture
 plug-in and firmware tables installed on the phone. GPU/Metal remain opt-in
 with `GPU=1`/`GPU=2`.
@@ -84,13 +104,36 @@ additional hand-maintained phone state.
 Local checks: shim/image build, payload/ADT/AVB inspection, shell syntax,
 mocked fastboot device selection and cached/cold patch-log checks. The original
 root image's HFS catalog was inspected read-only; that does not establish its
-filesystem health. Full kernel CI was not run locally.
+filesystem health. Kernel CI passed for commit `dcb5388` (run `42332704046`);
+no local full kernel build was needed for these host-tool and root-tweak changes.
 
 Live checks: device product verified before each RAM-only boot; USB command/file
 servers responsive; user confirmed CPU UI, unlock, Settings and touch. Captured
 90 Hz panel scan and real touch events. No firmware or partitions were flashed.
 Host change authorised by the user: temporary `192.168.7.1/24` alias on the Pixel's
-USB interface `en15`, to remove after testing. No other port was modified.
+USB interface `en15`, removed and verified after testing. No other port was modified.
 
-GPU quality, stability, battery, charging, sleep and peripheral operation still
-need verification. The saved root image predates the manual phone installations.
+GPU acceleration and direct scanout are live; graphical correctness, sustained
+frame pacing, stability, charging, full suspend/wake and peripheral operation
+still need work or verification. The saved root image predates the manual phone
+installations. No camera/audio/charging services were enabled during this task.
+
+## Quality Assessment
+
+- Proven locally: UI boot, unlock, Settings, touch, USB debugging, Metal and direct
+  scanout. The user confirmed direct scanout feels smoother; graphical glitches
+  remain. Smooth UI is a plausible incremental target, not yet achieved fully.
+- Upstream reports camera, sound, Wi-Fi, Bluetooth and sensors, with defects and
+  hand-maintained firmware/state. These are not verified on this installation.
+- Charging while iOS runs and full suspend/wake are unresolved daily-use risks.
+  CPU idle power collapse alone does not establish low overnight drain.
+- Cellular branches contain QMI/IPA experiments, not a complete calls/SMS/data
+  implementation. Video acceleration remains subsystem bring-up work.
+- AppleKeyStore is an always-unlocked stub, with no real SEP. App Store and Apple
+  ID services are unsupported; there is no demonstrated path to native iPhone
+  security or full Apple service compatibility.
+
+Prioritise display correctness and measured frame pacing, then charging and sleep,
+before enabling peripherals individually. A polished experimental device is a
+credible goal; a flawless everyday iPhone replacement is not currently supported
+by the evidence. See the upstream README and rk5a manifest for author claims.
