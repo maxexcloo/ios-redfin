@@ -13,6 +13,9 @@
  *   wland qmp MSG           message to the AOP over QMP (opens the link if needed)
  *   wland shutdown          PAS shutdown of the modem
  *   wland boot              power votes + PAS boot of the modem + wait for ready
+ *   wland smp2p-ipa VALUE   our outbound SMP2P entry "ipa" (IPA clock answer to the modem: 3 = valid + on)
+ *   wland ipahw regs|smmu|hwinit|meminit   IPA v4.7 AP-side setup (ipa.c; cellular data)
+ *   wland pas-load ID DIR NAME PA SIZE  TrustZone PAS load of DIR/NAME.mdt into a carve-out (other peripherals)
  *   wland smmu              the WLAN DMA stream through a translation-off SMMU bank (radio.c)
  *   wland up [SECS]         all of it from a fresh boot, then the radio: copy engines, WMI, passive scans
  *   wland auto              the boot job (launchd org.iosonpixel.wland): `up 0` once per phone boot in a child that
@@ -20,6 +23,7 @@
  *                           /var/local/wland.log (last boot's: .prev), progress in /var/local/wland.boot;
  *                           off with /var/local/wland.off or sweetwifi=0
  * While joined, SIGUSR1 drops the link (tests the rejoin).
+ * ipa=1 in /var/local/cell.on: the running wland brings the IPA up once per boot before the SIM is unlocked (IPA auto).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,6 +34,7 @@
 #include <sys/sysctl.h>
 #include <sys/wait.h>
 #include <sys/time.h>
+#include <sys/resource.h>
 #include "pmem.h"
 #include "ipcc.h"
 #include "smem.h"
@@ -41,8 +46,14 @@
 #include "radio.h"
 #include "ipnet.h"
 #include "bridge.h"
+#include "cell.h"
+#include "ipa.h"
+#include "ipaqmi.h"
+#include "ipagsi.h"
 
 static void set_stage(const char *stage);	/* wland auto: progress in /var/local/wland.boot (no-op otherwise) */
+static void ipa_auto_poll(void);		/* ipa=1 in cell.on: the IPA bring-up (IPA auto, below) */
+static void ipa_auto_allow(void);
 
 /* cmd-db aux levels (as in the GPU's arc votes) */
 /* Every cmd-db entry: name, RPMh slave (3 ARC, 4 VRM, 5 BCM), address. */
@@ -130,6 +141,17 @@ static int vote(const char *res, uint32_t level_index)
  * Without them the WLAN firmware takes an exception once calibration starts (after the cal report).
  */
 static int qmp_send(const char *msg);
+
+/* a BCM (bus) vote: x = average, y = peak, in the BCM's own units (0x3fff = its top level); commit + valid */
+static int bcm_vote(const char *res, uint32_t x, uint32_t y)
+{
+	x &= 0x3fff;
+	y &= 0x3fff;
+	uint32_t off[1] = { 0 }, val[1] = { 1u << 30 | 1u << 29 | x << 14 | y };
+	int rc = pm_rpmh(res, 1, off, val);
+	printf("bcm %s x %#x y %#x (%#x) -> %d\n", res, x, y, val[0], rc);
+	return rc;
+}
 
 static int wlan_power(void)
 {
@@ -262,6 +284,50 @@ static int smp2p_create(void)
 		wr32(pa + 4, 1 | (1u << 8));		/* version 1 last, features: SSR ack */
 	}
 	smp2p_out_pa = pa;
+	kick(IPC_MODEM_SMP2P);
+	return 0;
+}
+
+/*
+ * wland smp2p-ipa VALUE: our outbound entry "ipa" (Linux ipa_smp2p.c: the AP's answer to the modem's IPA clock
+ * query; bit 0 = answer valid, bit 1 = IPA clock enabled), added after "master-kernel" if missing, set to VALUE,
+ * doorbell rung. Only after the IPA is clocked, loaded and set up (cellular data design, step 4 D1).
+ */
+static int smp2p_ipa(uint32_t val)
+{
+	uint64_t pa;
+	uint32_t sz;
+	if (smem_get(SMEM_HOST_MODEM, SMP2P_OUT, &pa, &sz) || rd32(pa) != 0x504d5324) {
+		fprintf(stderr, "smp2p-ipa: no outbound item %u\n", SMP2P_OUT);
+		return -1;
+	}
+	uint32_t w = rd32(pa + 12), total = w & 0xffff, valid = w >> 16;
+	int idx = -1;
+	for (uint32_t i = 0; i < valid && i < 16; i++) {
+		char nm[17];
+		for (int k = 0; k < 16; k++)
+			nm[k] = (char)(rd32(pa + 20 + 20ull * i + (k & ~3)) >> (8 * (k & 3)));
+		nm[16] = 0;
+		if (!strcmp(nm, "ipa"))
+			idx = (int)i;
+	}
+	if (idx < 0) {
+		if (valid >= total || valid >= 16) {
+			fprintf(stderr, "smp2p-ipa: no free entry (%u/%u)\n", valid, total);
+			return -1;
+		}
+		idx = (int)valid;
+		wr_name(pa + 20 + 20ull * idx, "ipa");
+		wr32(pa + 20 + 20ull * idx + 16, 0);
+		__asm__ volatile("dsb sy" ::: "memory");
+		wr32(pa + 12, total | ((valid + 1) << 16));	/* the new entry becomes valid */
+		kick(IPC_MODEM_SMP2P);
+		printf("smp2p-ipa: entry %d \"ipa\" added (%u/%u valid)\n", idx, valid + 1, total);
+	}
+	uint64_t va = pa + 20 + 20ull * idx + 16;
+	printf("smp2p-ipa: value %#x -> %#x\n", rd32(va), val);
+	wr32(va, val);
+	__asm__ volatile("dsb sy" ::: "memory");
 	kick(IPC_MODEM_SMP2P);
 	return 0;
 }
@@ -417,6 +483,7 @@ static int qmp_send(const char *msg)
 }
 
 /* ---- modem boot: TrustZone PAS (Linux qcom_q6v5_pas + qcom_mdt_loader) ---- */
+static int pas_load(uint32_t pas, const char *dir, const char *name, uint64_t rpa, uint64_t rsize);
 
 #define PAS_MODEM	4
 #define MPSS_PA		0x8c000000ull	/* redfin modem_wlan_mem (lito-redbull-memory.dtsi; sunfish 0x8b000000) */
@@ -451,6 +518,129 @@ static uint8_t *slurp(const char *path, size_t *len)
 }
 
 struct phdr { uint32_t type, offset, vaddr, paddr, filesz, memsz, flags, align; };
+
+/*
+ * wland pas-load ID DIR NAME PA SIZE: a generic TrustZone PAS load of DIR/NAME.mdt + NAME.bNN into the carve-out
+ * PA..PA+SIZE (Linux qcom_mdt_load + qcom_scm_pas_auth_and_reset), for peripherals other than the modem. Nothing
+ * else is touched: no votes, no SMP2P, no QMP (the caller makes the votes the peripheral needs first). Relocatable
+ * images (phdr flag bit 27) get PAS mem setup and are placed at PA + (paddr - lowest relocatable paddr); fixed
+ * ones must lie inside PA..PA+SIZE. Used for the IPA firmware (ipa_fws, PAS id 15, pil_ipa_fw_mem 0x8bc00000/0x10000,
+ * redbull lito.dtsi) in the cellular data bring-up (X2).
+ */
+static int pas_load(uint32_t pas, const char *dir, const char *name, uint64_t rpa, uint64_t rsize)
+{
+	char path[256];
+	size_t mlen;
+	snprintf(path, sizeof(path), "%s/%s.mdt", dir, name);
+	uint8_t *mdt = slurp(path, &mlen);
+	if (!mdt || mlen < 0x34) {
+		fprintf(stderr, "pas-load: no %s\n", path);
+		return -1;
+	}
+	uint32_t phoff, phnum = 0;
+	memcpy(&phoff, mdt + 0x1c, 4);
+	memcpy(&phnum, mdt + 0x2c, 2);
+	if (mdt[4] != 1 || phnum == 0 || phnum > 64 || phoff + 32ull * phnum > mlen) {
+		fprintf(stderr, "pas-load: %s is not a 32-bit ELF with program headers\n", path);
+		return -1;
+	}
+	struct phdr *ph = (struct phdr *)(mdt + phoff);
+	int hash = -1, reloc = 0;
+	uint64_t lo = ~0ull;
+	for (uint32_t i = 0; i < phnum; i++) {
+		if (((ph[i].flags >> 24) & 7) == 2)
+			hash = (int)i;
+		if (ph[i].type == 1 && ph[i].memsz && (ph[i].flags & (1u << 27))) {
+			reloc = 1;
+			if (ph[i].paddr < lo)
+				lo = ph[i].paddr;
+		}
+	}
+	if (hash < 0) {
+		fprintf(stderr, "pas-load: no hash segment\n");
+		return -1;
+	}
+	size_t ehsz = phoff + 32ull * phnum, meta_len = ehsz + ph[hash].filesz;
+	uint8_t *meta = malloc(meta_len);
+	if (!meta)
+		return -1;
+	memcpy(meta, mdt, ehsz);
+	if (ph[hash].offset + ph[hash].filesz <= mlen) {
+		memcpy(meta + ehsz, mdt + ph[hash].offset, ph[hash].filesz);
+	} else {
+		size_t hl;
+		snprintf(path, sizeof(path), "%s/%s.b%02d", dir, name, hash);
+		uint8_t *h = slurp(path, &hl);
+		if (!h || hl < ph[hash].filesz) {
+			fprintf(stderr, "pas-load: hash segment %s missing\n", path);
+			return -1;
+		}
+		memcpy(meta + ehsz, h, ph[hash].filesz);
+		free(h);
+	}
+	/* check every segment fits before TrustZone is told anything */
+	for (uint32_t i = 0; i < phnum; i++) {
+		if (ph[i].type != 1 || (int)i == hash || !ph[i].memsz)
+			continue;
+		uint64_t pa = (ph[i].flags & (1u << 27)) ? rpa + (ph[i].paddr - lo) : ph[i].paddr;
+		if (pa < rpa || pa + ph[i].memsz > rpa + rsize) {
+			fprintf(stderr, "pas-load: segment %u at %llx+%x outside %llx+%llx\n", i, (unsigned long long)pa,
+				ph[i].memsz, (unsigned long long)rpa, (unsigned long long)rsize);
+			return -1;
+		}
+	}
+	uint64_t meta_pa = pm_alloc(meta_len, 0x1000);
+	if (!meta_pa)
+		return -1;
+	pm_wr(meta_pa, meta, meta_len);
+	uint64_t r1 = 0;
+	int64_t rc = scm(1, 2 | (2u << 6), pas, meta_pa, 0, &r1);
+	printf("pas-load %u: init image (%zu bytes metadata) -> %lld/%llx\n", pas, meta_len, (long long)rc,
+	       (unsigned long long)r1);
+	if (rc || r1)
+		return -1;
+	if (reloc) {
+		rc = scm(2, 3, pas, rpa, rsize, &r1);
+		printf("pas-load %u: mem setup %llx+%llx -> %lld/%llx\n", pas, (unsigned long long)rpa,
+		       (unsigned long long)rsize, (long long)rc, (unsigned long long)r1);
+		if (rc || r1)
+			return -1;
+	}
+	uint64_t total = 0;
+	static uint8_t zeros[0x1000];
+	for (uint32_t i = 0; i < phnum; i++) {
+		if (ph[i].type != 1 || (int)i == hash || !ph[i].memsz)
+			continue;
+		uint64_t pa = (ph[i].flags & (1u << 27)) ? rpa + (ph[i].paddr - lo) : ph[i].paddr;
+		if (ph[i].filesz) {
+			size_t sl;
+			snprintf(path, sizeof(path), "%s/%s.b%02u", dir, name, i);
+			uint8_t *seg = slurp(path, &sl);
+			if (!seg || sl < ph[i].filesz) {
+				fprintf(stderr, "pas-load: %s missing or short\n", path);
+				return -1;
+			}
+			uint8_t *pad = calloc(1, (ph[i].filesz + 3) & ~3u);
+			memcpy(pad, seg, ph[i].filesz);
+			pm_wr(pa, pad, (ph[i].filesz + 3) & ~3u);
+			free(pad);
+			free(seg);
+			total += ph[i].filesz;
+		}
+		for (uint64_t o = (ph[i].filesz + 3) & ~3ull; o < ph[i].memsz; o += sizeof(zeros)) {
+			uint64_t n = ph[i].memsz - o < sizeof(zeros) ? ph[i].memsz - o : sizeof(zeros);
+			pm_wr(pa + o, zeros, (n + 3) & ~3ull);
+		}
+		printf("pas-load %u: segment %u -> %llx (%x/%x bytes)\n", pas, i, (unsigned long long)pa, ph[i].filesz,
+		       ph[i].memsz);
+	}
+	rc = scm(5, 1, pas, 0, 0, &r1);
+	printf("pas-load %u: %llu bytes loaded; auth and reset -> %lld/%llx\n", pas, (unsigned long long)total,
+	       (long long)rc, (unsigned long long)r1);
+	free(meta);
+	free(mdt);
+	return rc || r1 ? -1 : 0;
+}
 
 static int boot_modem(void)
 {
@@ -596,8 +786,16 @@ static void net_cb(const struct qrtr_hdr *h, const uint8_t *d, uint32_t n)
 			wlfw_handle(h, d, n);
 			return;
 		}
+		if (h->dst_port == CELL_PORT) {
+			cell_handle(h, d, n);
+			return;
+		}
 		if (h->dst_port == PDMAPPER_PORT) {
 			pdmapper_handle(h, d, n);
+			return;
+		}
+		if (h->dst_port == IPAQMI_PORT || h->dst_port == IPAQMI_CLIENT_PORT) {
+			ipaqmi_handle(h, d, n);	/* only with ipaqmi=1/2 in cell.on (ipaqmi.c) */
 			return;
 		}
 		if (h->dst_port == TFTP_PORT || (h->dst_port >= TFTP_XFER_PORT0 && h->dst_port < TFTP_XFER_PORT0 + TFTP_XFERS)) {
@@ -616,7 +814,63 @@ static void net_cb(const struct qrtr_hdr *h, const uint8_t *d, uint32_t n)
 		printf("qrtr:   server service %#x instance %#x at %u:%x\n", w[1], w[2], w[3], w[4]);
 		if (w[1] == WLFW_SERVICE)
 			wlfw_new_server(w[3], w[4]);
+		cell_server(w[1], w[2], w[3], w[4]);
+		ipaqmi_server(w[1], w[2], w[3], w[4]);
+	} else if (w[0] == QRTR_TYPE_DEL_SERVER) {
+		cell_server_gone(w[3], w[4]);
+		ipaqmi_server_gone(w[3], w[4]);
+	} else if (w[0] == QRTR_TYPE_BYE) {
+		cell_server_gone(h->src_node, 0xffffffffu);
+		ipaqmi_server_gone(h->src_node, 0xffffffffu);
 	}
+}
+
+/*
+ * wland's settings (redfin 2026-11-04): env WLAND_<KEY> (upper case), else a "key=N" line in /var/local/wland.conf
+ * (no credentials there: those are wlan.conf's), else DEF. Read when asked (a restarted wland reads them again).
+ */
+#define WLAND_CONF	"/var/local/wland.conf"
+int wland_setting(const char *key, int def)
+{
+	char name[64], line[128];
+	size_t kl = strlen(key);
+	int v = def;
+	snprintf(name, sizeof(name), "WLAND_");
+	for (size_t i = 0; i < kl && 6 + i < sizeof(name) - 1; i++) {
+		name[6 + i] = (char)(key[i] >= 'a' && key[i] <= 'z' ? key[i] - 32 : key[i]);
+		name[7 + i] = 0;
+	}
+	const char *e = getenv(name);
+	if (e)
+		return atoi(e);
+	FILE *f = fopen(WLAND_CONF, "r");
+	if (!f)
+		return def;
+	while (fgets(line, sizeof(line), f))
+		if (!strncmp(line, key, kl) && line[kl] == '=')
+			v = atoi(line + kl + 1);
+	fclose(f);
+	return v;
+}
+
+/*
+ * Yofuness/ios-flame 9730bab (B57: 0.5 MB/s Wi-Fi): launchd's default process class let timer coalescing stretch
+ * wland's 1 ms naps ~10x; the job as ProcessType Interactive fixed it (tools/redfin-install-wifi-wsl.sh,
+ * WLAND_JOB_INTERACTIVE=1). Without a new job: "role=1" in wland.conf asks for the foreground role and latency
+ * QoS tier 1 here (setpriority PRIO_DARWIN_ROLE); 0 (default) leaves the job's class as it is.
+ */
+#ifndef PRIO_DARWIN_ROLE
+#define PRIO_DARWIN_ROLE		6
+#endif
+#ifndef PRIO_DARWIN_ROLE_UI_FOCAL
+#define PRIO_DARWIN_ROLE_UI_FOCAL	0x1
+#endif
+static void role_setting(void)
+{
+	if (wland_setting("role", 0) != 1)
+		return;
+	int r = setpriority(PRIO_DARWIN_ROLE, 0, PRIO_DARWIN_ROLE_UI_FOCAL);
+	printf("net: role=1: foreground role -> %s\n", r ? strerror(errno) : "ok");
 }
 
 /* the network to join: "ssid=NAME" and "psk=PASSPHRASE" lines (on the phone only, never in a repo) */
@@ -708,6 +962,10 @@ static void net_idle(void)
 	ipnet_poll();
 	bridge_poll();
 	join_poll();
+	ipa_auto_poll();	/* before cell_poll: its holds are in place before cell's first PIN verify could go */
+	cell_poll();	/* read-only modem status, only with /var/local/cell.on (cell.c) */
+	ipaqmi_poll();	/* the AP IPA QMI service, only with ipaqmi=1/2 in cell.on (ipaqmi.c) */
+	ipagsi_poll();	/* the IPA/GSI data path and its utun, only after cell.c started it (ipagsi.c) */
 }
 
 static int net(unsigned secs)
@@ -723,7 +981,9 @@ static int net(unsigned secs)
 		printf("net: no rmtfs\n");
 	if (pdmapper_init() || tftp_init())
 		printf("net: no pd-mapper/tftp\n");
+	ipaqmi_init();	/* announces 0x31/1 only with ipaqmi=1/2 in cell.on; default: nothing */
 	read_conf();
+	role_setting();
 	uint64_t end = link_ms() + (uint64_t)secs * 1000, stats = link_ms() + 30000;
 	while (!secs || link_ms() < end) {
 		link_poll(100);
@@ -745,6 +1005,9 @@ static int net(unsigned secs)
 					printf("net: no utun: joining without IP\n");
 			}
 		}
+		cell_allow();	/* the cell client (cell.on only) waits for this, + 15 s: never during WLFW/radio start */
+		ipaqmi_allow();	/* ipaqmi=2's one INIT_DRIVER too */
+		ipa_auto_allow();	/* and ipa=1's IPA bring-up */
 	}
 	radio_summary();
 	radio_stats();
@@ -952,6 +1215,242 @@ static void stage_init(void)
 	auto_boot_us = (int)bt.tv_usec;
 }
 
+/*
+ * IPA auto (ipa=1 in /var/local/cell.on; cellular data steps B-D2 in one go, as proven by hand on 2026-11-06): once
+ * per phone boot, inside the running wland, 15 s after the Wi-Fi bring-up (the moment cell/ipaqmi start; or 3 min
+ * after the link came up) and before the SIM is unlocked:
+ *   1 IP0 vote (= `wland bcm IP0 0 0x3fff`)      2 pas_load(15, /var/local/fw/ipa, ipa_fws, 0x8bc00000, 0x10000)
+ *   3 ipa_smmu: streams 0x520/0x522              4 ipa_meminit
+ *   5 SMP2P "ipa" = 3 (without it the modem stalls in INIT_DRIVER: "Task starvation: ipa_ctl", then crashes)
+ *   6 ipaqmi on (as ipaqmi=1), wait for the modem's 0x31/2 (60 s)    7 INIT_DRIVER (as ipaqmi=2, once)
+ *   8 its answer (ipaqmi gives up after 30 s).
+ * (`ipahw hwinit` is not a step: the reset values already match.) From the moment ipa=1 is seen until the sequence
+ * ended, cell.c holds the DMS online write, the SIM PIN verify and X1 (cell_ipa_hold; without the IPA the modem dies
+ * in ps_rm once the unlocked SIM registers LTE). Every step logs "ipa: auto step N ..."; the first failure ends it,
+ * releases the holds, and nothing is ever retried: IPA_MARK holds this boot's id from step 1 on, so neither a
+ * cell.on change nor a restarted wland runs it (or pas_load) again in this boot. Steps 1-5 block the link loop for
+ * their duration (pas_load: the firmware copy and two SMCs); one step per idle call, 200 ms apart.
+ */
+#define IPA_MARK	"/var/local/wland.ipa"
+#define IPA_FW_DIR	"/var/local/fw/ipa"
+#define IPA_PAS		15
+#define IPA_FW_PA	0x8bc00000ull	/* pil_ipa_fw_mem (redbull lito.dtsi) */
+#define IPA_FW_SIZE	0x10000ull
+#define IA_GAP_MS	200
+#define IA_SERVER_MS	60000
+#define IA_ANSWER_MS	40000		/* ipaqmi's own 30 s, plus margin */
+enum { IA_OFF, IA_WAIT, IA_RUN, IA_END };
+static int ia_state, ia_step, ia_allowed, ia_waitlog;
+static uint64_t ia_first, ia_check, ia_allow_ms, ia_next, ia_since, ia_t0;
+static char ia_uuid[40] = "-", ia_bt[32] = "-";
+
+static void ipa_auto_allow(void)
+{
+	if (!ia_allowed) {
+		ia_allowed = 1;
+		ia_allow_ms = link_ms() + 15000;
+	}
+}
+
+/* ipa=1 as a word of cell.on (start, or after a blank) */
+static int ipa_word(void)
+{
+	char b[512] = "";
+	FILE *f = fopen(CELL_ON, "r");
+	if (!f)
+		return 0;
+	size_t k = fread(b, 1, sizeof(b) - 1, f);
+	fclose(f);
+	b[k] = 0;
+	for (const char *s = b; (s = strstr(s, "ipa=")); s += 4)
+		if (s == b || s[-1] == ' ' || s[-1] == '\t' || s[-1] == '\n' || s[-1] == '\r')
+			return s[4] == '1' && (!s[5] || s[5] == ' ' || s[5] == '\t' || s[5] == '\n' || s[5] == '\r');
+	return 0;
+}
+
+/* this boot's id: kern.bootsessionuuid ("-" if none) and kern.boottime */
+static void ipa_boot_id(void)
+{
+	struct timeval bt;
+	boot_id(&bt);
+	snprintf(ia_uuid, sizeof(ia_uuid), "%s", auto_uuid);
+	snprintf(ia_bt, sizeof(ia_bt), "%ld.%06d", (long)bt.tv_sec, (int)bt.tv_usec);
+}
+
+/* 1 = IPA_MARK ("UUID BOOTTIME what...") is from this boot: by uuid when both have one, else by boottime */
+static int ipa_mark_this_boot(char *what, size_t wsz)
+{
+	char line[192] = "", uu[40] = "", bt[32] = "";
+	int at = 0;
+	FILE *f = fopen(IPA_MARK, "r");
+	if (!f)
+		return 0;
+	if (!fgets(line, sizeof(line), f))
+		line[0] = 0;
+	fclose(f);
+	line[strcspn(line, "\r\n")] = 0;
+	if (sscanf(line, "%39s %31s %n", uu, bt, &at) < 2)
+		return 0;
+	snprintf(what, wsz, "%s", at > 0 ? line + at : "");
+	if (strcmp(uu, "-") && strcmp(ia_uuid, "-"))
+		return !strcmp(uu, ia_uuid);
+	return !strcmp(bt, ia_bt);
+}
+
+static int ipa_mark(const char *what)
+{
+	FILE *f = fopen(IPA_MARK ".new", "w");
+	if (!f)
+		return -1;
+	int bad = fprintf(f, "%s %s %s\n", ia_uuid, ia_bt, what) < 0;
+	bad |= fclose(f) != 0;
+	return bad || rename(IPA_MARK ".new", IPA_MARK) ? -1 : 0;
+}
+
+static void ipa_end(int ok, const char *why)
+{
+	uint64_t now = link_ms();
+	char m[96];
+	snprintf(m, sizeof(m), "%s step %d", ok ? "ok" : "failed", ia_step);
+	if (ipa_mark(m))
+		printf("ipa: auto: could not update %s (it still says started: no second run in this boot either way)\n", IPA_MARK);
+	printf("ipa: auto %s at step %d after %llu ms: %s; nothing is retried in this boot\n", ok ? "DONE" : "FAILED", ia_step,
+	       (unsigned long long)(now - ia_t0), why);
+	ia_state = IA_END;
+	cell_ipa_hold(0, ok ? "IPA bring-up done" : "IPA bring-up failed");
+}
+
+/* one step; on success the next one IA_GAP_MS later */
+static void ipa_step(uint64_t now)
+{
+	uint64_t t = now;
+	int rc = 0;
+	uint32_t ctrl = 0, def = 0;
+	switch (ia_step) {
+	case 1:
+		printf("ipa: auto step 1 IP0 vote (bcm IP0 x 0 y 0x3fff)\n");
+		rc = bcm_vote("IP0", 0, 0x3fff);
+		break;
+	case 2:
+		printf("ipa: auto step 2 pas-load %d %s/ipa_fws %#llx+%#llx\n", IPA_PAS, IPA_FW_DIR, (unsigned long long)IPA_FW_PA,
+		       (unsigned long long)IPA_FW_SIZE);
+		rc = pas_load(IPA_PAS, IPA_FW_DIR, "ipa_fws", IPA_FW_PA, IPA_FW_SIZE);
+		break;
+	case 3:
+		printf("ipa: auto step 3 smmu streams 0x520/0x522\n");
+		rc = ipa_smmu();
+		break;
+	case 4:
+		printf("ipa: auto step 4 meminit\n");
+		rc = ipa_meminit();
+		break;
+	case 5:
+		printf("ipa: auto step 5 smp2p ipa = 3\n");
+		rc = smp2p_ipa(3);
+		break;
+	case 6:
+		if (!ia_since) {
+			ia_since = now;
+			printf("ipa: auto step 6 ipaqmi on (as ipaqmi=1), the modem's 0x31/2 (max %d s)\n", IA_SERVER_MS / 1000);
+		}
+		if (!ipaqmi_ipa_on()) {
+			if (now - ia_since > IA_SERVER_MS) {
+				ipa_end(0, "step 6: the modem's ipa server 0x31/2 never showed");
+				return;
+			}
+			if (!ia_waitlog)
+				printf("ipa: auto step 6 waiting for the modem's 0x31/2\n");
+			ia_waitlog = 1;
+			ia_next = now + 500;
+			return;
+		}
+		printf("ipa: auto step 6 ok: modem ipa server known (%llu ms)\n", (unsigned long long)(now - ia_since));
+		ia_step++;
+		ia_since = 0;
+		ia_next = now + 2000;	/* the modem registers with our 0x31/1 first (it did at once on 2026-11-06) */
+		return;
+	case 7:
+		if (ipagsi_early())
+			printf("ipa: auto step 7: p2early setup FAILED (INIT_DRIVER sent anyway)\n");
+		printf("ipa: auto step 7 INIT_DRIVER (as ipaqmi=2, once)\n");
+		rc = ipaqmi_ipa_send();
+		if (!rc)
+			ia_since = now;
+		break;
+	case 8: {
+		int r = ipaqmi_ipa_result(&ctrl, &def);
+		if (!r && now - ia_since <= IA_ANSWER_MS) {
+			ia_next = now + 200;
+			return;
+		}
+		printf("ipa: auto step 8 INIT_DRIVER answer: %s ctrl_ep %d default_ep %d (%llu ms)\n",
+		       r > 0 ? "ACCEPTED" : r < 0 ? "REFUSED/unanswered/server gone" : "none", (int)ctrl, (int)def,
+		       (unsigned long long)(now - ia_since));
+		if (r > 0)
+			cell_ipa_ready(ctrl, def);	/* datatest=1's X1 opens the data port (DPM/WDA/bind) first */
+		ipa_end(r > 0, r > 0 ? "INIT_DRIVER accepted" : "INIT_DRIVER not accepted (see the ipaqmi lines)");
+		return;
+	}
+	}
+	uint64_t done = link_ms();
+	if (rc) {
+		char why[64];
+		snprintf(why, sizeof(why), "step %d returned %d", ia_step, rc);
+		printf("ipa: auto step %d FAILED (%llu ms)\n", ia_step, (unsigned long long)(done - t));
+		ipa_end(0, why);
+		return;
+	}
+	printf("ipa: auto step %d ok (%llu ms)\n", ia_step, (unsigned long long)(done - t));
+	ia_step++;
+	ia_next = done + IA_GAP_MS;
+}
+
+static void ipa_auto_poll(void)
+{
+	if (ia_state == IA_END)
+		return;
+	uint64_t now = link_ms();
+	if (!ia_first)
+		ia_first = now ? now : 1;
+	if (!ia_allowed && now - ia_first > 180000) {
+		ia_allowed = 1;
+		ia_allow_ms = now;
+	}
+	if (ia_state != IA_RUN && now >= ia_check) {
+		ia_check = now + 10000;
+		int on = ipa_word();
+		if (on && ia_state == IA_OFF) {
+			char what[96];
+			ipa_boot_id();
+			if (ipa_mark_this_boot(what, sizeof(what))) {
+				printf("ipa: auto: ipa=1, but %s says it already ran in this boot (%s): not again\n", IPA_MARK, what);
+				ia_state = IA_END;
+				return;
+			}
+			ia_state = IA_WAIT;
+			cell_ipa_hold(1, "ipa=1");
+			printf("ipa: auto: ipa=1: IPA bring-up %s\n", ia_allowed ? "in 15 s or less" : "15 s after the Wi-Fi bring-up");
+		} else if (!on && ia_state == IA_WAIT) {
+			ia_state = IA_OFF;
+			cell_ipa_hold(0, "ipa=1 gone before the IPA bring-up began");
+		}
+	}
+	if (ia_state == IA_WAIT && ia_allowed && now >= ia_allow_ms) {
+		ia_t0 = now;
+		ia_step = 0;
+		if (ipa_mark("started")) {
+			ipa_end(0, "could not write " IPA_MARK " (the once-per-boot guard): nothing done");
+			return;
+		}
+		printf("ipa: auto: starting (boot %s %s, %s)\n", ia_uuid, ia_bt, IPA_MARK);
+		ia_state = IA_RUN;
+		ia_step = 1;
+		ia_next = now;
+	}
+	if (ia_state == IA_RUN && now >= ia_next)
+		ipa_step(now);
+}
+
 /* the supervisor passes SIGUSR1 (drop the link, the rejoin test) on to the bring-up child */
 static volatile pid_t auto_child;
 static void forward_usr1(int sig)
@@ -1065,7 +1564,7 @@ static int auto_up(void)
 int main(int argc, char **argv)
 {
 	if (argc < 2) {
-		fprintf(stderr, "usage: wland smem | smp2p | vote RES LVL | levels RES | boot | sysctl NAME [VALUE]\n");
+		fprintf(stderr, "usage: wland smem | smp2p | cell | ipa show|init-driver | vote RES LVL | levels RES | boot | sysctl NAME [VALUE]\n");
 		return 2;
 	}
 	setvbuf(stdout, NULL, _IONBF, 0);	/* a stalled bus access must not swallow the output */
@@ -1087,6 +1586,10 @@ int main(int argc, char **argv)
 		printf("%s = %d (%#x)\n", argv[2], v, v);
 		return 0;
 	}
+	if (!strcmp(argv[1], "cell"))
+		return cell_print();	/* the last read-only modem status line (cell.c; needs /var/local/cell.on) */
+	if (!strcmp(argv[1], "ipa") && argc > 2 && (!strcmp(argv[2], "show") || !strcmp(argv[2], "init-driver")))
+		return ipaqmi_cmd(argc, argv);	/* INIT_DRIVER bytes / one INIT_DRIVER via the running wland (ipaqmi.c) */
 	pm_init();
 	if (smem_init())
 		return 1;
@@ -1150,12 +1653,15 @@ int main(int argc, char **argv)
 		stage_init();
 		return boot_modem() ? 1 : 0;
 	} else if (!strcmp(c, "bcm") && argc > 3) {
-		/* a BCM (bus) vote: x = average, y = peak, in the BCM's own units (0x3fff = its top level); commit + valid */
-		uint32_t x = (uint32_t)strtoul(argv[2 + 1], NULL, 0) & 0x3fff, y = argc > 4 ? (uint32_t)strtoul(argv[4], NULL, 0) & 0x3fff : x;
-		uint32_t off[1] = { 0 }, val[1] = { 1u << 30 | 1u << 29 | x << 14 | y };
-		int rc = pm_rpmh(argv[2], 1, off, val);
-		printf("bcm %s x %#x y %#x (%#x) -> %d\n", argv[2], x, y, val[0], rc);
-		return rc ? 1 : 0;
+		uint32_t x = (uint32_t)strtoul(argv[3], NULL, 0), y = argc > 4 ? (uint32_t)strtoul(argv[4], NULL, 0) : x;
+		return bcm_vote(argv[2], x, y) ? 1 : 0;
+	} else if (!strcmp(c, "smp2p-ipa") && argc > 2) {
+		return smp2p_ipa((uint32_t)strtoul(argv[2], NULL, 0)) ? 1 : 0;
+	} else if (!strcmp(c, "ipahw")) {
+		return ipa_main(argc - 1, argv + 1);
+	} else if (!strcmp(c, "pas-load") && argc > 6) {
+		return pas_load((uint32_t)strtoul(argv[2], NULL, 0), argv[3], argv[4], strtoull(argv[5], NULL, 0),
+				strtoull(argv[6], NULL, 0)) ? 1 : 0;
 	} else if (!strcmp(c, "vote") && argc > 3) {
 		return vote(argv[2], (uint32_t)strtoul(argv[3], NULL, 0)) ? 1 : 0;
 	} else {

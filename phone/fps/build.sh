@@ -1,6 +1,8 @@
 #!/bin/sh
 # Build SweetFPS.dylib (iOS 16 arm64, signed ad hoc) into phone/fps/out (ws-u-fps; see SweetFPS.m).
 # ws-z-ui: SweetSB.m rides along (status-bar clock clear of the camera hole; off without /var/local/sweetsb.m|t).
+# Cellular: SweetPIN.m (SIM PIN UI -> wland), SweetCell.m (status-bar carrier/signal) and SweetCT.m (CoreTelephony stand-in)
+# ride along; each is off without its /var/local flag (see their headers).
 # Install: files put out/SweetFPS.dylib /var/local/lib/SweetFPS.dylib (0644), then give SpringBoard
 # DYLD_INSERT_LIBRARIES=/var/local/lib/SweetFPS.dylib and SWEET_FPS=MODE (launchd EnvironmentVariables) and restart it.
 set -e
@@ -8,8 +10,8 @@ cd "$(dirname "$0")"
 mkdir -p out
 ../../tools/ios-cc -O2 -Wall -Wextra -Wno-unused-parameter -fobjc-arc -dynamiclib \
 	-install_name /var/local/lib/SweetFPS.dylib \
-	-framework Foundation -framework QuartzCore -framework UIKit \
-	-o out/SweetFPS.dylib SweetFPS.m SweetSB.m
+	-framework Foundation -framework QuartzCore -framework UIKit -framework CoreGraphics \
+	-o out/SweetFPS.dylib SweetFPS.m SweetSB.m SweetPIN.m SweetCell.m SweetCT.m
 codesign -f -s - out/SweetFPS.dylib
 ls -la out/SweetFPS.dylib
 # The PC's local userland builder has a fixed component list (it runs phone/haptics/build.sh, which calls this):
