@@ -1,23 +1,27 @@
-name: check
+name: Check
 
 on:
+  pull_request:
   push:
     branches: [main]
-  pull_request:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@v2
-      - run: mise run check
+      - name: Set Up Shared Tools & Tasks
+        uses: maxexcloo/dotfiles/.github/actions/mise@main
+        with:
+          tools: actionlint node@24 npm:renovate oxfmt ruff shellcheck
+      - name: Run Checks
+        run: mise run check

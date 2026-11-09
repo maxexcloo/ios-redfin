@@ -1,15 +1,13 @@
-name: userland
+name: Userland
 
-# iOS 16 arm64 userland for SSH into the phone: dropbear (root-only, pubkey
-# only) and dash. Built with the runner's Xcode iOS SDK, ad hoc signed.
-# Also wland (phone/wifi, sunfish constants), fastrpcd (phone/fastrpc, GPL-3.0+) and phone/tools. Install with
-# tools/sunfish-install-ssh.sh over the kernel file server.
+# iOS 16 arm64 userland: dropbear (root-only, pubkey only), dash, toybox and phone/, built with the runner's
+# Xcode iOS SDK and signed ad hoc. Install SSH with tools/redfin-install-ssh.sh over the kernel file server.
 
 on:
-  workflow_dispatch:
   push:
     branches: [main]
-    paths: [.github/workflows/userland.yaml, "phone/**"]
+    paths: [.github/workflows/userland.yaml, "phone/**", tools/ios-cc]
+  workflow_dispatch:
 
 env:
   DROPBEAR_VER: "2022.83"
@@ -20,26 +18,23 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
   build:
     runs-on: macos-15
     timeout-minutes: 30
     steps:
-      - name: Toolchain
+      - uses: actions/checkout@v7
+        with:
+          path: repo
+          persist-credentials: false
+      - name: Set Up Toolchain
         run: |
-          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-          echo "SDK=$SDK" >> "$GITHUB_ENV"
-          mkdir -p "$HOME/bin"
-          printf '#!/bin/sh\nexec %s -arch arm64 -isysroot %s -miphoneos-version-min=16.0 "$@"\n' \
-            "$(xcrun -f clang)" "$SDK" > "$HOME/bin/ios-cc"
-          chmod +x "$HOME/bin/ios-cc"
-          echo "$HOME/bin" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/repo/tools" >> "$GITHUB_PATH"
           mkdir -p out
-
-      - name: dropbear
+      - name: Build Dropbear
         run: |
           curl -fsSL "https://matt.ucc.asn.au/dropbear/releases/dropbear-$DROPBEAR_VER.tar.bz2" | tar xj
           cd "dropbear-$DROPBEAR_VER"
@@ -61,8 +56,7 @@ jobs:
             --disable-loginfunc --disable-pututline --disable-pututxline --disable-harden
           make -j4 PROGRAMS="dropbear dropbearkey scp dbclient" MULTI=1
           cp dropbearmulti ../out/
-
-      - name: dash
+      - name: Build Dash
         run: |
           curl -fsSL "http://gondor.apana.org.au/~herbert/dash/files/dash-$DASH_VER.tar.gz" | tar xz
           cd "dash-$DASH_VER"
@@ -71,8 +65,7 @@ jobs:
             ac_cv_func_strchrnul=no
           make -j4
           cp src/dash ../out/
-
-      - name: toybox
+      - name: Build Toybox
         continue-on-error: true
         run: |
           brew install gnu-sed >/dev/null
@@ -86,13 +79,7 @@ jobs:
           make macos_defconfig HOSTCC=cc
           CC=ios-cc HOSTCC=cc CFLAGS="-I$PWD/ios-inc" make -j4 toybox
           cp toybox ../out/
-
-      - uses: actions/checkout@v4
-        with:
-          path: repo
-          persist-credentials: false
-
-      - name: wland + phone tools
+      - name: Build Phone Tools
         run: |
           cd repo
           sh phone/wifi/build.sh
@@ -106,7 +93,6 @@ jobs:
           bash phone/tools/build.sh || echo "::warning::some phone tools failed"
           sh phone/haptics/build.sh && cp phone/haptics/out/SweetHaptics.dylib ../out/ || echo "::warning::SweetHaptics.dylib failed"
           sh phone/fps/build.sh && cp phone/fps/out/SweetFPS.dylib ../out/ || echo "::warning::SweetFPS.dylib failed"
-          # (the build's output goes out with the files: the run's own logs cannot be fetched from Claude's container)
           if sh phone/audio/build.sh > ../out/audio-build.log 2>&1 && cp -R phone/audio/out/RedwoodAudio.driver phone/audio/out/sound_test phone/audio/out/camera_test phone/audio/out/camera_avtest phone/audio/out/mg_test phone/audio/out/vt_test phone/audio/out/mic_test ../out/; then
             :
           else
@@ -116,8 +102,7 @@ jobs:
           for t in psx pstack netsvc nettest oslog prefs openapp lsreg memwarn pmem a2s imgdump autolock; do
             if [ -f "phone/tools/out/$t" ]; then cp "phone/tools/out/$t" ../out/; fi
           done
-
-      - name: Check and sign
+      - name: Check & Sign
         run: |
           cd out
           for b in $(find . -maxdepth 1 -type f | sed "s|^./||"); do
@@ -129,8 +114,7 @@ jobs:
           done
           find . -type f ! -name SHA256SUMS | sort | xargs shasum -a 256 > "$RUNNER_TEMP/userland-sha256"
           mv "$RUNNER_TEMP/userland-sha256" SHA256SUMS
-
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ios-userland
           path: out/

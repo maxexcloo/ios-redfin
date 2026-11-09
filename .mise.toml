@@ -1,9 +1,17 @@
 [tools]
-actionlint = "latest"
-shellcheck = "latest"
+python = "latest"
 
 [tasks.build]
 run = "bash shim/build.sh"
 
 [tasks.check]
-run = "python3 tools/check.py"
+run = "python tools/check.py"
+depends = [
+  "check:actions",
+  "check:mise",
+  "check:oxfmt",
+  "check:python",
+  "check:shell",
+  "check:updates",
+  "check:whitespace",
+]

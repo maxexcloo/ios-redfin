@@ -1,36 +1,18 @@
-# device dumps: persist/modemst/fsg hold IMEI + calibration; live DT holds the serial
-backup/
-dtb/
-recovery/
-# third-party/Apple sources fetched for reading
-research/
-shim/out/
-xnu/out/
-xnu/out-*/
-__pycache__/
-# flame: Google/Apple images and firmware, boot tools, run logs, build trees (only work/userland/bin is shared)
-images/
-stock/
+# apple, google and qualcomm inputs, phone dumps and recovery images: never committed
 downloads/
+fw-redfin/
+recon/
+recovery/
+research/
+
+# build output, run logs and preserved local artefacts
+archive/
 logs/
-reference-repos/
-work/*
-!work/userland/
-work/userland/*
-!work/userland/bin/
+out/
 phone/*/out/
 phone/metal/pipelines/
-tools/camsnap/camsnap
+shim/out/
 tools/flamebridge/FlameBridge.app/Contents/MacOS/
 tools/flamebridge/FlameBridge.app/Contents/_CodeSignature/
-*.ipa
-.DS_Store
-
-# redfin recon output (live DT has the serial)
-recon/
-
-# devices/<dev>/pull-firmware.sh output: the vendor's firmware, never committed
-fw-redfin/
-fw-*/
-out/
-archive/
+work/
+xnu/out-*/

@@ -1,40 +1,28 @@
-name: xnu
+name: XNU
 
 on:
-  workflow_dispatch:
-    inputs:
-      macos_version:
-        description: macOS release whose xnu to build (13.5 = xnu-8796, iOS 16 era)
-        default: "13.5"
-      kernel_config:
-        description: RELEASE / DEVELOPMENT / DEBUG
-        default: DEVELOPMENT
-      machine_config:
-        description: xnu MACHINE_CONFIG
-        default: SWEET
-      keep_going:
-        description: make -k (collect all compile errors in one run)
-        default: "true"
-      clean:
-        description: ignore the incremental build cache (full build)
-        default: "false"
   push:
     branches: [main]
-    paths:
-      - "xnu/patches/**"
-      - ".github/workflows/xnu.yaml"
+    paths: [.github/workflows/xnu.yaml, "xnu/patches/**"]
+  workflow_dispatch:
+    inputs:
+      clean:
+        description: Ignore the incremental build cache
+        type: boolean
+        default: false
 
 concurrency:
-  group: xnu-${{ github.ref }}
   cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
 
 env:
   DXB_REPO: https://github.com/blacktop/darwin-xnu-build
   # renovate: datasource=git-refs depName=https://github.com/blacktop/darwin-xnu-build
   DXB_SHA: 663906528d1cd5ea8fde7de6f16de73db9511549
-  MACOS_VERSION: ${{ inputs.macos_version || '13.5' }}
-  KERNEL_CONFIG: ${{ inputs.kernel_config || 'DEVELOPMENT' }}
-  MACHINE_CONFIG: ${{ inputs.machine_config || 'SWEET' }}
+  # macOS 13.5 ships xnu-8796, the iOS 16 kernel.
+  MACOS_VERSION: "13.5"
+  KERNEL_CONFIG: DEVELOPMENT
+  MACHINE_CONFIG: SWEET
 
 permissions:
   contents: read
@@ -46,11 +34,10 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-
-      - name: Fetch build script
+      - name: Fetch Build Script
         run: |
           git init -q dxb
           git -C dxb fetch -q --depth 1 "$DXB_REPO" "$DXB_SHA"
@@ -61,8 +48,7 @@ jobs:
           sed -i '' 's/ARCHS="x86_64 arm64e" VALID_ARCHS="x86_64 arm64e"/ARCHS="x86_64 arm64e arm64" VALID_ARCHS="x86_64 arm64e arm64"/' dxb/build.sh
           grep -c 'VALID_ARCHS="x86_64 arm64e arm64"' dxb/build.sh
           ls dxb/patches
-
-      - name: Deps
+      - name: Install Dependencies
         run: |
           brew install jq gum bash cmake ninja
           # build.sh only checks that xcodes exists (Xcode is preinstalled); no bottle on macOS 14
@@ -75,15 +61,14 @@ jobs:
           sudo xcode-select -s "$XC"
           xcodebuild -version
           xcrun --find iig
-
       # Incremental builds: dxb/xnu (patched source), dxb/build/xnu.obj and the fakeroot (mig, ctf tools,
       # libfirehose, headers) come from the last successful run. The new patch set is applied to a pristine
       # copy of the source with build.sh's own patches(); rsync --checksum then copies only files whose
       # content changed, so make recompiles just those. A miss or clean=true is the old full build.
-      - name: Restore incremental build cache
+      - name: Restore Incremental Build Cache
         id: cache
-        if: inputs.clean != 'true'
-        uses: actions/cache/restore@v4
+        if: ${{ !inputs.clean }}
+        uses: actions/cache/restore@v6
         with:
           path: |
             dxb/xnu
@@ -91,8 +76,7 @@ jobs:
             dxb/fakeroot
           key: xnu-inc-${{ env.MACOS_VERSION }}-${{ env.KERNEL_CONFIG }}-${{ env.MACHINE_CONFIG }}-${{ github.run_id }}
           restore-keys: xnu-inc-${{ env.MACOS_VERSION }}-${{ env.KERNEL_CONFIG }}-${{ env.MACHINE_CONFIG }}-
-
-      - name: Re-patch cached source (changed files only)
+      - name: Re-Patch Cached Source
         if: steps.cache.outputs.cache-matched-key != ''
         working-directory: dxb
         run: |
@@ -121,23 +105,21 @@ jobs:
           # build.sh must not re-run its seds over the tree (they rewrite files and bump mtimes)
           sed -i '' 's/^    patches$/    true # patched by the cache step/' build.sh
           rm -rf build/xnu.obj/kernel.* fakeroot/System/Library/Kernels/kernel.*
-
       - name: Build
         working-directory: dxb
         env:
-          # keep going after errors so one run reports every compile failure
-          MAKEFLAGS: ${{ inputs.keep_going == 'false' && '' || '-k' }}
+          # Keep going after errors so one run reports every compile failure.
+          MAKEFLAGS: -k
         run: |
           set -o pipefail
           bash build.sh 2>&1 | tee "$RUNNER_TEMP/build.log"
-
       # Runs on the cached path and the full one, after the source is patched either way.
       # build.sh's patches() only warns, so a malformed or conflicting patch used to leave a
       # green build whose kernel silently lacked it: 1047 shipped as "corrupt patch at :40".
       # Every xnu/patches/*.patch must be reported "Applying patch"; a miss is a build failure.
       # (blacktop's own optional patches in dxb/patches are not checked: they may legitimately
       # not apply to this macOS.)
-      - name: Verify every patch applied
+      - name: Verify Every Patch Applied
         working-directory: dxb
         run: |
           set -euo pipefail
@@ -161,18 +143,16 @@ jobs:
           done
           echo "$(printf '%s\n' "$applied" | wc -l | tr -d ' ') patches applied, $bad missing"
           [ "$bad" = 0 ]
-
-      - name: Save incremental build cache
+      - name: Save Incremental Build Cache
         if: success()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             dxb/xnu
             dxb/build/xnu.obj
             dxb/fakeroot
           key: xnu-inc-${{ env.MACOS_VERSION }}-${{ env.KERNEL_CONFIG }}-${{ env.MACHINE_CONFIG }}-${{ github.run_id }}
-
-      - name: Package build tree for local compiles
+      - name: Package Build Tree for Local Compiles
         if: always()
         run: |
           # Generated headers, config option headers, mig output and the patched
@@ -186,44 +166,28 @@ jobs:
             -C dxb build/xnu.obj fakeroot/usr/local/include xnu \
             -C .. sdk-kernel-platform
           ls -la buildtree.tgz
-
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: xnu-buildtree
           path: buildtree.tgz
           retention-days: 7
-
-      - name: Inspect closed KDK support libs
-        if: always()
-        run: |
-          mkdir -p out/kdk-libs
-          for lib in /Library/Developer/KDKs/*/System/Library/KernelSupport/lib*.a; do
-            b=$(basename "$lib" .a)
-            ar t "$lib" > "out/kdk-libs/$b.members.txt" 2>&1 || true
-            nm -m "$lib" > "out/kdk-libs/$b.nm.txt" 2>&1 || true
-            lipo -info "$lib" >> out/kdk-libs/arch.txt 2>&1 || true
-          done
-          ls -la out/kdk-libs
-
-      - name: Collect
+      - name: Collect Kernel
         if: always()
         run: |
           mkdir -p out
           cp -R dxb/fakeroot/System/Library/Kernels/. out/ 2>/dev/null || true
           ls -la out
           (cd out && shasum -a 256 kernel.* > SHA256SUMS) || true
-
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: xnu-kernel
           path: out/
           if-no-files-found: warn
-
-      - name: Upload build logs
+      - name: Upload Build Logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: xnu-logs
           path: |

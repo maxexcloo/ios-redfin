@@ -1,9 +1,2 @@
-# Patch context contains a diff marker before original indentation and blank lines.
-phone/metal2/bridge/patches/0139-exclusive-table-retention.patch whitespace=-blank-at-eol,-space-before-tab
-xnu/patches/1053-redfin-backlight-property-types.patch whitespace=-blank-at-eol,-space-before-tab
-xnu/patches/1054-redfin-backlight-provider.patch whitespace=-blank-at-eol,-space-before-tab
-xnu/patches/1055-redfin-physical-backlight-cap.patch whitespace=-blank-at-eol,-space-before-tab
-xnu/patches/1056-redfin-adsp-awake-state.patch whitespace=-blank-at-eol,-space-before-tab
-xnu/patches/1057-redfin-qrtr-disconnect.patch whitespace=-blank-at-eol,-space-before-tab
-xnu/patches/1058-redfin-native-canvas.patch whitespace=-blank-at-eol,-space-before-tab
-xnu/patches/1059-redfin-native-null-default.patch whitespace=-blank-at-eol,-space-before-tab
+# Unified-diff context includes significant whitespace; preserve patch bytes.
+*.patch -whitespace
