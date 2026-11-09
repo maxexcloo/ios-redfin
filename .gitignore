@@ -10,7 +10,6 @@ archive/
 logs/
 out/
 phone/*/out/
-phone/metal/pipelines/
 shim/out/
 tools/flamebridge/FlameBridge.app/Contents/MacOS/
 tools/flamebridge/FlameBridge.app/Contents/_CodeSignature/
