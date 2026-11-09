@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""fakephone.py: a fake sweetmon daemon (the phone side of docs/redfin/sweetmon.md) for testing the collector and the
+"""fakephone.py: a fake sweetmon daemon (the phone side of bce31d1^:docs/redfin/sweetmon.md) for testing the collector and the
 dashboard without the phone. Python 3 stdlib only.
 
   fakephone.py [--listen usb=127.0.0.2 --listen wifi=127.0.0.3] [--port 5150] [--key HEX | --key-file F | -K]

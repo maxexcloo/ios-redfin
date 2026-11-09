@@ -19,7 +19,7 @@ cd "$(dirname "$0")/.."
 REPO=$PWD
 W=${REDFIN_WORK:-$HOME/redfin-work}
 DEV=iPhone10,3 BUILD=20H392
-# rootfs, SystemOS and AppOS cryptexes of 20H392 (HANDOFF.md, as used on flame/sunfish)
+# rootfs, SystemOS and AppOS cryptexes of 20H392 (bce31d1^:HANDOFF.md, as used on flame/sunfish)
 PARTS=(087-86698-044.dmg 087-86593-047.dmg 087-86715-047.dmg DeviceTree.d22ap.im4p)
 mkdir -p "$W/ipsw"
 

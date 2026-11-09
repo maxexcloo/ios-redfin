@@ -1,5 +1,5 @@
 /*
- * /dev/redwood-motion (kernel 0972, WS-S; ABI in docs/redfin/qol-plan.md §3.3): sensd writes whole
+ * /dev/redwood-motion (kernel 0972, WS-S; ABI in bce31d1^:docs/redfin/qol-plan.md §3.3): sensd writes whole
  * struct motion_samples; the kernel posts each as an IOHIDEvent from the matching SweetHID* sensor service
  * (iokit/Kernel/arm/hid/SweetHID.cpp). Values are in the Android/SEE device frame and units listed below;
  * the kernel converts to what iOS expects (accel: g, sign flipped).

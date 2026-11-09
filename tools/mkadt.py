@@ -12,7 +12,7 @@ import hashlib, os, struct, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import adt  # noqa: E402
 
-# Kernel-managed RAM: above every Qualcomm XPU carve-out (see NOTES.md)
+# Kernel-managed RAM: above every Qualcomm XPU carve-out (see bce31d1^:NOTES.md)
 PHYS_BASE = 0xb0000000
 MEM_SIZE = 0x4d000000
 # --highmem (phone only): above 4G. The flame live FDT memory node is

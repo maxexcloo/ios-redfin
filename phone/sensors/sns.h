@@ -11,7 +11,7 @@
  *   0x22 SNS_CLIENT_JUMBO_REPORT_IND  same layout, larger payload
  *
  * Protobuf (field numbers as in libssc's copies of sns_client.proto / sns_std.proto / sns_std_sensor.proto /
- * sns_suid.proto / sns_proximity.proto; see the WS-S notes in docs/redfin/qol-plan.md for what was verified):
+ * sns_suid.proto / sns_proximity.proto; see the WS-S notes in bce31d1^:docs/redfin/qol-plan.md for what was verified):
  *   sns_std_suid            { 1 fixed64 suid_low; 2 fixed64 suid_high }
  *   sns_client_request_msg  { 1 sns_std_suid suid; 2 fixed32 msg_id; 3 suspend_config susp_config;
  *                             4 sns_std_request request }

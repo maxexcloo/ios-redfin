@@ -146,7 +146,7 @@ python3 -I tools/sweet-root-tweaks.py "$R" || die "sweet-root-tweaks.py failed"
 
 say "prune daemons that crash-loop without hardware"
 # fairplayd (relaunch loop + locationd deadlock) and vmd (CommCenter retry loop):
-# both from the port's docs/redfin/disabled-services.md. Backups land beside each
+# both from bce31d1^:docs/redfin/disabled-services.md. Backups land beside each
 # file as *.before-prune, so tools/prune-root.py --revert undoes it.
 python3 -I tools/prune-root.py "$R" || die "prune-root.py failed"
 

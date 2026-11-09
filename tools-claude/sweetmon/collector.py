@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """sweetmon collector (PC/WSL side): keeps one connection to the phone's sweetmon daemon (TCP 5150, USB or Wi-Fi),
 stores everything on disk and serves the live dashboard + JSON API on http://127.0.0.1:8765/.
-Protocol and design: docs/redfin/sweetmon.md (branch ws-z-mon). Python 3 stdlib only (uses the `lz4` module or the
+Protocol and design: bce31d1^:docs/redfin/sweetmon.md. Python 3 stdlib only (uses the `lz4` module or the
 `lz4` binary when present, else its own pure-python LZ4 frame decoder).
 
   collector.py [--root DIR] [--link auto|usb|wifi] [--http-host 127.0.0.1] [--http-port 8765]

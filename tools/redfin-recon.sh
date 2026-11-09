@@ -27,7 +27,7 @@ android)
 	done | tee "$OUT/summary-android.txt"
 	sh_ cat /proc/cmdline > "$OUT/cmdline-android.txt"
 	sh_ ls -l /dev/block/by-name/ > "$OUT/by-name-android.txt" 2>&1
-	echo "Next: back up the per-device partitions (see docs/redfin/port-plan.md, step 0) before anything else."
+	echo "Next: back up the per-device partitions (persist, modemst and fsg; see README Recovery) before anything else."
 	;;
 twrp)
 	adb wait-for-recovery 2>/dev/null || adb wait-for-device

@@ -1,5 +1,5 @@
 /*
- * sweetmon: low-overhead monitor daemon for the redfin port (design and wire protocol: docs/redfin/sweetmon.md).
+ * sweetmon: low-overhead monitor daemon for the redfin port (design and wire protocol: bce31d1^:docs/redfin/sweetmon.md).
  *
  *   sweetmon [-D] [-p PORT] [-k TOKEN | -K] [-l LOGFILE] [-v]
  *   sweetmon -Z IN OUT      compress IN into the LZ4 frame format the daemon sends (test of the writer)

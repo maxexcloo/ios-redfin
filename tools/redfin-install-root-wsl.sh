@@ -10,7 +10,7 @@
 #
 # Needs: the phone in TWRP (fastboot boot twrp-*-redfin.img), Windows adb.exe on PATH in WSL (WSL
 # shares the Windows PATH) or ADB=/mnt/c/.../adb.exe, ~/redfin-work/iosroot.img from
-# redfin-mkroot-wsl.sh. HANDOFF.md: write from TWRP with dd, never `fastboot flash userdata` (ABL hung
+# redfin-mkroot-wsl.sh. bce31d1^:HANDOFF.md: write from TWRP with dd, never `fastboot flash userdata` (ABL hung
 # on the last chunk on flame).
 set -euo pipefail
 cd "$(dirname "$0")/.."

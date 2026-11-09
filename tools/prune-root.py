@@ -13,7 +13,7 @@ What it does, and why (all from the port's own docs):
                  com.apple.fairplayd.versioned queue forever after that, and
                  locationd's CLMescalSigner (FairPlay SAPInit) deadlocks its
                  main thread - which hangs every app making a synchronous
-                 CoreLocation call. (docs/redfin/disabled-services.md,
+                 CoreLocation call. (bce31d1^:docs/redfin/disabled-services.md,
                  tools-claude/quickwins-launchd.py --no-fairplayd)
                  TRADE-OFF: no FairPlay, so DRM'd content (App Store purchases,
                  Apple Music/TV downloads) cannot work. It did not work with the

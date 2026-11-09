@@ -1,5 +1,5 @@
 /*
- * /dev/redwood-qrtr (kernel 0956, WS-D; ABI fixed in docs/redfin/qol-plan.md §3.1):
+ * /dev/redwood-qrtr (kernel 0956, WS-D; ABI fixed in bce31d1^:docs/redfin/qol-plan.md §3.1):
  *   open()                 one QRTR port on our node, O_NONBLOCK honoured
  *   ioctl RQRTR_LOOKUP     service (+instance) -> node/port of the ADSP's server (0 = none yet)
  *   write()/read()         struct { u32 node; u32 port; u8 data[]; }: one datagram each

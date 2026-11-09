@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # bt-spike.sh: what does iOS 16.7's Bluetooth stack (bluetoothd, BlueTool, wirelessproxd, ...) expect from the
 # hardware? Run in WSL against the iOS root image (read-only), optionally with the D22 DeviceTree and kernelcache.
-# Prints one compact report (also saved to bt-spike-report.txt) for docs/redfin/qol-plan.md WS-B stage 2.
+# Prints one compact report (also saved to bt-spike-report.txt) for bce31d1^:docs/redfin/qol-plan.md WS-B stage 2.
 #
 #   tools-claude/bt-spike.sh ROOT [--adt DeviceTree.d22ap.im4p] [--kc kernelcache] [--out FILE] [--max N]
 #

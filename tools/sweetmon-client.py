@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""sweetmon-client.py: minimal test client for phone/tools/sweetmon (protocol: docs/redfin/sweetmon.md).
+"""sweetmon-client.py: minimal test client for phone/tools/sweetmon (protocol: bce31d1^:docs/redfin/sweetmon.md).
 usage: sweetmon-client.py [-H HOST] [-p PORT] [-k TOKEN|-K KEYFILE] [-t SECS] [-o DIR] [CMD ...]
   Connects, authenticates, sends each CMD (one argv word per command line, e.g. 'rate 500 1' 'klog 0x101d0ef08'),
   prints a one-line summary of every frame for SECS seconds (default 5; 0 = until the first E frame after a trace).

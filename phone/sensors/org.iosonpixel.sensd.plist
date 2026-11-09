@@ -4,7 +4,7 @@
   The sensd boot job. iOS 16's launchd reads its jobs from /System/Library/xpc/launchd.plist, not from
   this file: merge this dictionary into its LaunchDaemons under the key
   /System/Library/LaunchDaemons/org.iosonpixel.sensd.plist, as tools/redfin-install-wifi-wsl.sh does for
-  org.iosonpixel.wland (the python snippet is in docs/redfin/qol-plan.md, WS-S). Binary: /var/local/bin/sensd.
+  org.iosonpixel.wland (the python snippet is in bce31d1^:docs/redfin/qol-plan.md, WS-S). Binary: /var/local/bin/sensd.
   sensd waits for /dev/redwood-qrtr and the SNS service itself, so it can start at boot before the DSP is up;
   KeepAlive restarts it if it ever exits (not after /var/local/sensd.off: it exits 0 then).
 -->
