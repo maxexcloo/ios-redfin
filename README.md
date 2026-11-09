@@ -26,7 +26,7 @@ mise run check
 mise run build -- "$PWD/work/boot/working.payload" "$PWD/out/redfin.img"
 ```
 
-Checks cover host syntax, synthetic tests, pd-mapper QMI replies, patch structure, local documentation links, Actions lint and whitespace. The QMI tests use a host C compiler with AddressSanitizer and UndefinedBehaviorSanitizer. The build calls the existing native LLVM `shim/build.sh`; consolidating it behind the siblings' common Python entrypoint is deferred. It packs a boot-v3 image with an LZ4 Image and unsigned AVB footer padded to 96 MiB. Neither task accesses a phone.
+Checks cover host syntax, synthetic tests, pd-mapper QMI replies, patch structure, local documentation links, Actions lint and whitespace. The QMI tests use a host C compiler with AddressSanitizer and UndefinedBehaviorSanitizer. The build calls the native LLVM `shim/build.sh`, which packs a boot-v3 image with an LZ4 Image and unsigned AVB footer padded to 96 MiB. Neither task accesses a phone.
 
 `xnu/patches/` applies to XNU `8796.141.3` through blacktop/darwin-xnu-build. Phone tools and Metal also need Xcode's iOS SDK. The `xnu.yaml`, `metal2.yaml` and `userland.yaml` Actions workflows accept manual dispatches on `main`, for example `gh workflow run xnu.yaml --ref main`. Successful runs upload Actions artefacts; match their run revision to the intended source. A fresh clone must build or download its kernel.
 
@@ -59,9 +59,9 @@ USB Ethernet uses host `192.168.7.1/24`, phone `192.168.7.2`, UDP 5140 logs, UDP
 
 Count `SCANOUT latched` frames in direct mode; `FB shown=0` alone does not mean rendering stopped. Use identical gestures/phase markers, screenshots, thermal state and `/var/local/mtl2.log` timelines. `tools-claude/fps-parse.py` parses counters; `fb-shot.py` interprets framebuffer geometry. Keep thermal protection enabled. Existing tests rejected encode-thread mode 3, FP16/contraction/plain-colour experiments, triple buffering, GMEM/autotune and several timing knobs. Replace loaded dylibs by staging a new file and renaming it; in-place writes can retain stale code-signature state.
 
-**Recovery:**
+### Recovery
 
-Keep the matching Android 14 `UP1A.231105.001.B2` archive, `downloads/redfin-up1a.231105.001.b2-factory-4e5a2679.zip`, and verified per-device persist/modemst/fsg backups. Verify the archive's full SHA-256 against [Google's redfin factory-image entry](https://developers.google.com/android/images#redfin). Stock recovery has not been exercised in this session.
+Keep the matching Android 14 `UP1A.231105.001.B2` archive, `downloads/redfin-up1a.231105.001.b2-factory-4e5a2679.zip`, and verified per-device persist/modemst/fsg backups. Verify the archive's full SHA-256 against [Google's redfin factory-image entry](https://developers.google.com/android/images#redfin). Stock recovery has not been exercised on this phone.
 
 Enter the bootloader with **Power + Volume Down** and verify `product: redfin` using `fastboot -s SERIAL getvar product`. A separately approved factory restore follows the matching archive's `flash-all` instructions, writes stock firmware and erases userdata; retain needed iOS files first and keep the cable connected. Verify Android reaches **Welcome to Pixel**, then check its build, charging and normal boot path.
 
@@ -87,8 +87,8 @@ the same licence (Copyright (c) 2026 the ios-flame contributors), with these exc
   files stay under the APSL 2.0.
 - Files that came from other projects keep their own licence, listed below.
 
-Nothing from Apple's iOS, Google's images or Qualcomm's firmware is in this repository; see the README for
-what you need to fetch yourself.
+Nothing from Apple's iOS, Google's images or Qualcomm's firmware is in this repository; see [Inputs Kept Locally](#inputs-kept-locally)
+for what you need to fetch yourself.
 
 ### Sources & Attribution
 
@@ -128,7 +128,7 @@ what you need to fetch yourself.
 - **metal2vulkan** (<https://github.com/steelbrain/metal2vulkan>, GPL-2.0-or-later OR LGPL-3.0-or-later):
   fetched at UniXNU's pin by `tools/build-m2v-bridge.sh`. `phone/metal2/bridge/patches/` are patches to it and
   fall under its licence. A built SweetMetal2.bundle links it statically.
-- **Mesa / Turnip** (<https://gitlab.freedesktop.org/mesa/mesa>, MIT): the Vulkan driver for the Adreno 640,
+- **Mesa / Turnip** (<https://gitlab.freedesktop.org/mesa/mesa>, MIT): the Vulkan driver for the Adreno 620,
   fetched by `tools/build-turnip-ios.sh`. `phone/turnip/patches/` are patches to it.
 - **Linux**: `phone/wifi/` follows the drivers named in each file's header: ath10k (ISC) and the Qualcomm SMEM,
   SMP2P, GLINK, QRTR and remoteproc drivers (GPL-2.0). It also follows Bjorn Andersson's rmtfs, pd-mapper and
