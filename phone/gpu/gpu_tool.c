@@ -10,7 +10,7 @@
  *   gpu bos                     list buffers
  *   gpu replay FILE.rd [-t MS]  replay a Mesa capture (uncompressed .rd): every buffer at its iova
  *                               (own allocations), then each command stream; prints where the
- *                               buffers are (read them with pmem dump / flame-files read /dev/pmem)
+ *                               buffers are (read them with pmem dump / redfin-files read /dev/pmem)
  *   gpu clear                   clear an SMMU fault (the GPU drops writes until then)
  *   gpu read NAME [OFF LEN]     raw bytes to stdout
  *   gpu write NAME FILE [OFF]   file into a buffer
