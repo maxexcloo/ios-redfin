@@ -113,7 +113,7 @@ int main(int argc, char **argv)
 		return EXIT_OFF;
 	}
 	if (stat(root, &st) || !S_ISDIR(st.st_mode)) {
-		flog("served tree %s: missing (tools/redfin-install-hexagon-wsl.sh installs it)", root);
+		flog("served tree %s: missing (a804771:tools/redfin-install-hexagon-wsl.sh installed it)", root);
 		sleep(30);	/* launchd would start us again at once */
 		return EXIT_USAGE;
 	}

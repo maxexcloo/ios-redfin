@@ -108,7 +108,7 @@ index 0000000..e0c3115
 + * writes that turn it off are always allowed, also after a failure: r15a's were not).
 + *
 + * Boot-arg sweettorch=1: a look only (the module's type, subtype, and registers, nothing written);
-+ * sweettorch=2: the light can be switched: poke/command line "t MA [MS]" (tools/flame-cmd.py 't 50 1000'),
++ * sweettorch=2: the light can be switched: poke/command line "t MA [MS]" (tools/redfin-cmd.py 't 50 1000'),
 + * sysctl kern.sweet_torch (any user) = level 0..1000, thousandths of the torch current; 0 is off.
 + * sweettorch=3: as 2, plus one 400 ms flash at the lowest current when ready.
 + *

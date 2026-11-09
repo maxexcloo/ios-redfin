@@ -275,7 +275,7 @@ index 6cefbe88b..ac07c2fba 100644
 + * to a write-combining mirror at the top of RAM, above XNU's range:
 + *   +0      "SWEETMIR" | u64 total | u32 ring size
 + *   +0x1000 ring bytes (offset of byte n = n % ring size)
-+ * The next shim boot copies its tail to UFS (tools/flame-log-pull.sh rescue).
++ * The next shim boot copies its tail to UFS (tools/redfin-log-pull.sh rescue).
 + */
 +#define SWEET_MIRROR_PA         0x1fa000000ULL
 +struct sweet_mirror_header {
@@ -436,7 +436,7 @@ index f868ae49d..7d06a6cf8 100644
 + * text (bsd/dev/sweet_poke.c: r/w/m/p/s lines), run at once in this
 + * thread, results in the console (and so in the live log); "reboot" resets
 + * the phone with PSCI (the shim already set the PMIC reason to
-+ * bootloader, so it lands in fastboot). tools/flame-cmd.py sends them.
++ * bootloader, so it lands in fastboot). tools/redfin-cmd.py sends them.
 + */
 +extern void sweet_poke_run(const char *text, unsigned len);
 +

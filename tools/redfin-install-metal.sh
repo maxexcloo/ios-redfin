@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 phone/metal/build.sh >/dev/null
-F="python3 tools/flame-files.py"
+F="python3 tools/redfin-files.py"
 B=phone/metal/out/SweetMetal.bundle
 D=/System/Library/Extensions/SweetMetal.bundle
 $F mkdir $D 755 >/dev/null
@@ -13,4 +13,4 @@ $F mkdir $D/_CodeSignature 755 >/dev/null
 $F put $B/SweetMetal $D/SweetMetal 755
 $F put $B/Info.plist $D/Info.plist 644
 $F put $B/_CodeSignature/CodeResources $D/_CodeSignature/CodeResources 644
-python3 tools/flame-cmd.py sync >/dev/null 2>&1 || true
+python3 tools/redfin-cmd.py sync >/dev/null 2>&1 || true

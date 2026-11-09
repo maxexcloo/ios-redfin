@@ -176,7 +176,7 @@ index 089256f..5ebe2a5 100644
 +++ b/bsd/dev/sweet_haptic.c
 @@ -12,6 +12,12 @@
   * (strength 1..127, open-loop RTP level) is the kernel API; the poke/command line
-  * "v MS [STRENGTH]" calls it (tools/flame-cmd.py 'v 200').
+  * "v MS [STRENGTH]" calls it (tools/redfin-cmd.py 'v 200').
   *
 + * 0912: for iOS, sysctl kern.sweet_haptic (write-only, any user) queues one pulse for the
 + * driver's thread, which stays up after bring-up and plays requests in order, newest

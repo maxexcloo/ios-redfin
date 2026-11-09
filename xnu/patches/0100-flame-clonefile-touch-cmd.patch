@@ -6,12 +6,12 @@ index ff4d89ba4..1116ace5b 100644
   * Command server on 192.168.7.2:5141 (UDP): each datagram is poke script
   * text (bsd/dev/sweet_poke.c: r/w/m/p/s lines), run at once in this
   * thread, results in the console (and so in the live log); "rtc" prints the
-- * PM8150 RTC ("SWEET RTC: N", for tools/flame-rtc.py); "panic" panics
-+ * PM8150 RTC ("SWEET RTC: N", for tools/flame-rtc.py); "tap X Y" and
+- * PM8150 RTC ("SWEET RTC: N", for tools/redfin-rtc.py); "panic" panics
++ * PM8150 RTC ("SWEET RTC: N", for tools/redfin-rtc.py); "tap X Y" and
 + * "swipe X1 Y1 X2 Y2 MS" touch the screen (panel pixels); "panic" panics
   * (to test the panic path); "reboot" resets
   * the phone with PSCI (the shim already set the PMIC reason to
-  * bootloader, so it lands in fastboot). tools/flame-cmd.py sends them.
+  * bootloader, so it lands in fastboot). tools/redfin-cmd.py sends them.
 @@ -892,6 +893,51 @@ extern void sweet_poke_run(const char *text, unsigned len);
  struct sync_args;
  extern int sync(proc_t p, struct sync_args *uap, int32_t *retval);

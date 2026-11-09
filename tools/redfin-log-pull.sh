@@ -1,9 +1,9 @@
 #!/bin/bash
 # Read the logs a test run left at the end of userdata, from TWRP (adb root).
 #
-#   tools/flame-log-pull.sh shim OUT.txt   shim probe log (64 blocks before the XNU ring)
-#   tools/flame-log-pull.sh xnu  OUT.bin   XNU persistent console ring (last 1025 blocks)
-#   tools/flame-log-pull.sh rescue OUT.txt RAM log rescue (shim/ramlog.c: the previous kernel's
+#   tools/redfin-log-pull.sh shim OUT.txt   shim probe log (64 blocks before the XNU ring)
+#   tools/redfin-log-pull.sh xnu  OUT.bin   XNU persistent console ring (last 1025 blocks)
+#   tools/redfin-log-pull.sh rescue OUT.txt RAM log rescue (shim/ramlog.c: the previous kernel's
 #                                          last console bytes, saved by the next shim boot)
 #
 # Layout: shim/ufs.h. The partition is found by name, so this works whatever

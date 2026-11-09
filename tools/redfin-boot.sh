@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC2086 # base is a space-separated boot-arg list
 # Pack kernel + ADT + boot-args into a shim boot image and fastboot-boot it
 # on the Pixel 5 (redfin). RAM only: nothing is flashed.
 #
@@ -83,7 +84,7 @@ if [ -n "${GPUFREQ:-}" ]; then
 	base=$(printf '%s\n' $base | grep -v -e '^sweetgpufreq=' | tr '\n' ' ')
 	base="$base sweetgpufreq=$GPUFREQ"
 fi
-# Real time: PM8150 RTC + offset (tools/flame-rtc.py LOG calibrates it once).
+# Real time: PM8150 RTC + offset (tools/redfin-rtc.py LOG calibrates it once).
 [ -f work/rtc-offset ] && base="$base sweetrtcoff=$(cat work/rtc-offset)"
 # Extra args replace defaults with the same key (XNU would take the first).
 for a in "$@"; do

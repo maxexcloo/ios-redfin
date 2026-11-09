@@ -1,20 +1,20 @@
 #!/bin/bash
-# Build the on-phone tools into out/ with work/userland/bin/ios-cc, signed ad hoc (with NAME-ents.plist when
-# there is one). Install one: python3 tools/flame-files.py put phone/tools/out/NAME /var/local/bin/NAME 755
+# Build the on-phone tools into out/ with tools/ios-cc, signed ad hoc (with NAME-ents.plist when
+# there is one). Install one: python3 tools/redfin-files.py put phone/tools/out/NAME /var/local/bin/NAME 755
 # (usage is at the top of each source):
-#   psx      processes without /proc; psx -k NAME kills     pstack   PID: thread backtraces (tools/flame-profile.py)
+#   psx      processes without /proc; psx -k NAME kills     pstack   PID: thread backtraces (tools/redfin-profile.py)
 #   openapp  BUNDLE_ID [URL]: launch an app                   lsreg    LaunchServices registration (no uicache)
 #   netsvc   SystemConfiguration network service for an IF    nettest  DNS, TCP, then HTTPS
 #   oslog    stream the unified log                           prefs    CFPreferences read/write (no defaults)
 #   autolock get|never|SECONDS: Settings > Auto-Lock (ManagedConfiguration maxInactivity), for benches
 #   imgtest  does ImageIO decode real pixels (HEIC: no)       membw    CPU memory bandwidth
-#   sweettrace  kdebug trace (sched, IPC, 0994 display/GPU events) for tools-claude/sweet-trace.py
+#   sweettrace  kdebug trace (sched, IPC, 0994 display/GPU events) for tools/redfin-trace.py
 #   sweetmon    monitor daemon: samples, klog tail, kdebug traces over TCP 5150 (bce31d1^:docs/redfin/sweetmon.md)
 #   expt, exq, runmigrator: one-off probes of ExtensionFoundation and DataMigration (runmigrator needs
 #   com.apple.migrationpluginwrapper's entitlements, not in git)
 set -euo pipefail
 cd "$(dirname "$0")"
-CC=../../work/userland/bin/ios-cc
+CC=../../tools/ios-cc
 mkdir -p out
 build() {	# NAME SOURCE [FLAGS...]
 	local name=$1 src=$2

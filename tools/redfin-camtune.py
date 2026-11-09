@@ -36,6 +36,7 @@ OUT ("RWCISP02", little-endian; camera_isp.c reads it):
   u32 refs; refs x { f32 r/g, f32 b/g, f32 cct } from the bluest light to the reddest (at most 16)
 At most 6 lights of 6 temperatures each (camera_isp.h TUNE_LIGHTS, TUNE_CCTS).
 """
+
 import argparse
 import json
 import math
@@ -49,53 +50,55 @@ MAX_LIGHTS, MAX_CCTS, MAX_REFS = 6, 6, 16
 
 # ---- the container ---------------------------------------------------------------------------------------------
 
+
 def load(path):
     """(data, symbols): symbols [(name, kind, parent, offset, size)] with offsets into data"""
-    with open(path, 'rb') as fp:
+    with open(path, "rb") as fp:
         d = fp.read()
-    if not d.startswith(b'QTI Chromatix Header') or len(d) < 0xd0:
+    if not d.startswith(b"QTI Chromatix Header") or len(d) < 0xD0:
         return d, []
-    toff, tsz = struct.unpack_from('<QQ', d, 0xa8)
-    doff, dsz = struct.unpack_from('<QQ', d, 0xc0)
+    toff, tsz = struct.unpack_from("<QQ", d, 0xA8)
+    doff, dsz = struct.unpack_from("<QQ", d, 0xC0)
     if toff + tsz > len(d) or doff + dsz > len(d):
         return d, []
     syms = []
     for o in range(toff, toff + tsz - 0x47, 0x48):
-        sid, name, kind, parent, off, size = struct.unpack_from('<Q32sQQQQ', d, o)
-        syms.append((name.split(b'\0')[0].decode('latin1'), kind, parent, off, size))
-    return d[doff:doff + dsz], syms
+        _sid, name, kind, parent, off, size = struct.unpack_from("<Q32sQQQQ", d, o)
+        syms.append((name.split(b"\0")[0].decode("latin1"), kind, parent, off, size))
+    return d[doff : doff + dsz], syms
 
 
-ENCODINGS = {'f32': (4, '<f', 0), 'f64': (8, '<d', 0), 'f32lo': (8, '<f', 0)}
+ENCODINGS = {"f32": (4, "<f", 0), "f64": (8, "<d", 0), "f32lo": (8, "<f", 0)}
 
 
 def values(data, encoding):
     """the data as numbers in an encoding; each with its byte offset (index * stride)"""
-    stride, fmt, _ = ENCODINGS[encoding]
+    stride, _fmt, _ = ENCODINGS[encoding]
     n = len(data) // stride
-    if encoding == 'f32':
-        v = list(struct.unpack_from('<%df' % n, data, 0))
-    elif encoding == 'f64':
-        v = list(struct.unpack_from('<%dd' % n, data, 0))
+    if encoding == "f32":
+        v = list(struct.unpack_from(f"<{int(n):d}f", data, 0))
+    elif encoding == "f64":
+        v = list(struct.unpack_from(f"<{int(n):d}d", data, 0))
     else:
-        v = list(struct.unpack_from('<%df' % (2 * n), data, 0))[0::2]
-    return [x if math.isfinite(x) else float('nan') for x in v], stride
+        v = list(struct.unpack_from(f"<{int(2 * n):d}f", data, 0))[0::2]
+    return [x if math.isfinite(x) else float("nan") for x in v], stride
 
 
 # ---- the shapes ------------------------------------------------------------------------------------------------
+
 
 def is_ccm(v, i):
     d0, d1, d2 = v[i], v[i + 4], v[i + 8]
     if not (0.5 <= d0 <= 4 and 0.5 <= d1 <= 4 and 0.5 <= d2 <= 4):
         return False
-    m = v[i:i + 9]
+    m = v[i : i + 9]
     if any(not (-3 <= x <= 4) for x in m):
         return False
     for r in range(3):
         if not 0.9 <= m[3 * r] + m[3 * r + 1] + m[3 * r + 2] <= 1.1:
             return False
     # (not three equal rows, not a run of a constant)
-    return len(set(round(x, 4) for x in m)) >= 3
+    return len({round(x, 4) for x in m}) >= 3
 
 
 def whole(x):
@@ -109,7 +112,13 @@ def pair_before(v, i, lo, hi, reach, strict=False):
     """
     for j in range(i - 2, max(i - reach, 0) - 1, -1):
         a, b = v[j], v[j + 1]
-        if lo <= a <= hi and lo <= b <= hi and (a < b if strict else a <= b) and whole(a) and whole(b):
+        if (
+            lo <= a <= hi
+            and lo <= b <= hi
+            and (a < b if strict else a <= b)
+            and whole(a)
+            and whole(b)
+        ):
             return a, b, j
     return None
 
@@ -125,13 +134,19 @@ def triggers(v, i):
     lux = near
     if near is not None:
         j = near[2] - 2
-        if j >= 0 and 0 <= v[j] < v[j + 1] <= 1000 and v[j + 1] > 1 and whole(v[j]) and whole(v[j + 1]):
+        if (
+            j >= 0
+            and 0 <= v[j] < v[j + 1] <= 1000
+            and v[j + 1] > 1
+            and whole(v[j])
+            and whole(v[j + 1])
+        ):
             lux = (v[j], v[j + 1], j)
     return (cct[:2] if cct else None), (lux[:2] if lux else None)
 
 
 def is_grid(v, i):
-    g = v[i:i + GRID]
+    g = v[i : i + GRID]
     if len(g) < GRID or not (0.85 <= g[0] <= 12):
         return False
     centre = g[6 * LSC_W + 8]
@@ -141,22 +156,25 @@ def is_grid(v, i):
         return False
     corners = (g[0], g[LSC_W - 1], g[GRID - LSC_W], g[GRID - 1])
     if min(corners) < centre * 0.98:
-        return False                    # (lens shading raises the corners)
+        return False  # (lens shading raises the corners)
     for y in range(LSC_H):
-        row = g[y * LSC_W:(y + 1) * LSC_W]
-        if any(abs(row[x + 1] - row[x]) > 0.35 * max(row[x], row[x + 1]) for x in range(LSC_W - 1)):
+        row = g[y * LSC_W : (y + 1) * LSC_W]
+        if any(
+            abs(row[x + 1] - row[x]) > 0.35 * max(row[x], row[x + 1])
+            for x in range(LSC_W - 1)
+        ):
             return False
-    return len(set(round(x, 3) for x in g)) > 10
+    return len({round(x, 3) for x in g}) > 10
 
 
 def find_ccms(v, keep=None):
     out = []
-    for i in range(0, len(v) - 9):
+    for i in range(len(v) - 9):
         if keep is not None and not keep(i):
             continue
         if is_ccm(v, i):
             cct, lux = triggers(v, i)
-            out.append({'at': i, 'm': v[i:i + 9], 'cct': cct, 'lux': lux})
+            out.append({"at": i, "m": v[i : i + 9], "cct": cct, "lux": lux})
     return out
 
 
@@ -170,10 +188,17 @@ def find_lscs(v, keep=None):
             i += 1
     out, k = [], 0
     while k + 3 < len(grids):
-        four = grids[k:k + 4]
+        four = grids[k : k + 4]
         if all(four[j + 1] - four[j] <= GRID + 64 for j in range(3)):
             cct, lux = triggers(v, four[0])
-            out.append({'at': four[0], 'grids': [v[g:g + GRID] for g in four], 'cct': cct, 'lux': lux})
+            out.append(
+                {
+                    "at": four[0],
+                    "grids": [v[g : g + GRID] for g in four],
+                    "cct": cct,
+                    "lux": lux,
+                }
+            )
             k += 4
         else:
             k += 1
@@ -191,17 +216,32 @@ def find_refs(v, keep=None):
                 i += 1
                 continue
             recs, j = [], i
-            while j + 1 < n and 0.15 < v[j] < 2.5 and 0.15 < v[j + 1] < 2.5 and len(recs) < MAX_REFS:
-                if recs and not (v[j] > recs[-1][0] * 1.01 and v[j + 1] < recs[-1][1] * 0.99):
+            while (
+                j + 1 < n
+                and 0.15 < v[j] < 2.5
+                and 0.15 < v[j + 1] < 2.5
+                and len(recs) < MAX_REFS
+            ):
+                if recs and not (
+                    v[j] > recs[-1][0] * 1.01 and v[j + 1] < recs[-1][1] * 0.99
+                ):
                     break
                 recs.append((v[j], v[j + 1], j))
                 j += stride
-            if len(recs) >= 5 and recs[-1][0] / recs[0][0] >= 1.5 and recs[0][1] / recs[-1][1] >= 1.5:
+            if (
+                len(recs) >= 5
+                and recs[-1][0] / recs[0][0] >= 1.5
+                and recs[0][1] / recs[-1][1] >= 1.5
+            ):
                 # a colour temperature in the records: a field that falls from 15000..1500 as R/G rises
                 cct_field = None
                 for k in range(2, stride):
                     t = [v[r[2] + k] for r in recs if r[2] + k < n]
-                    if len(t) == len(recs) and all(1500 <= x <= 15000 for x in t) and all(t[q] > t[q + 1] for q in range(len(t) - 1)):
+                    if (
+                        len(t) == len(recs)
+                        and all(1500 <= x <= 15000 for x in t)
+                        and all(t[q] > t[q + 1] for q in range(len(t) - 1))
+                    ):
                         cct_field = k
                         break
                 score = len(recs) + (10 if cct_field is not None else 0)
@@ -221,157 +261,222 @@ def find_refs(v, keep=None):
         else:
             t = (math.log(rg) - rg0) / (rg1 - rg0) if rg1 != rg0 else 0
             cct, estimated = 1 / (1 / 7500 + t * (1 / 2300 - 1 / 7500)), True
-        out.append({'at': at, 'rg': rg, 'bg': bg, 'cct': cct, 'estimated': estimated})
+        out.append({"at": at, "rg": rg, "bg": bg, "cct": cct, "estimated": estimated})
     return out
 
 
 # ---- what was found, into lights ---------------------------------------------------------------------------------
 
+
 def into_lights(found, key):
     """tables -> [{lux: [from, to], ccts: [{cct: [from, to], key: value}]}] (ascending; at most 6 x 6)"""
     lights, current = [], None
     for t in found:
-        if current is None or (t['lux'] is not None and list(t['lux']) != current['lux']):
-            current = {'lux': list(t['lux']) if t['lux'] is not None else None, 'ccts': []}
+        if current is None or (
+            t["lux"] is not None and list(t["lux"]) != current["lux"]
+        ):
+            current = {
+                "lux": list(t["lux"]) if t["lux"] is not None else None,
+                "ccts": [],
+            }
             lights.append(current)
-        current['ccts'].append(t)
+        current["ccts"].append(t)
     out = []
     for n, light in enumerate(lights):
-        lux = light['lux'] or [n * 1000.0 / len(lights), (n + 1) * 1000.0 / len(lights)]
+        lux = light["lux"] or [n * 1000.0 / len(lights), (n + 1) * 1000.0 / len(lights)]
         entries, seen = [], set()
-        for k, t in enumerate(light['ccts']):
-            cct = list(t['cct']) if t['cct'] is not None else None
+        for k, t in enumerate(light["ccts"]):
+            cct = list(t["cct"]) if t["cct"] is not None else None
             if cct is not None and tuple(cct) in seen:
                 continue
             if cct is not None:
                 seen.add(tuple(cct))
-            entries.append({'cct': cct, key: t[key]})
+            entries.append({"cct": cct, key: t[key]})
         # (no trigger found: spread over 2000..8000 K in their order)
         for k, e in enumerate(entries):
-            if e['cct'] is None:
+            if e["cct"] is None:
                 step = 6000.0 / len(entries)
-                e['cct'] = [2000 + k * step, 2000 + (k + 1) * step - 1]
-        entries.sort(key=lambda e: e['cct'][0])
+                e["cct"] = [2000 + k * step, 2000 + (k + 1) * step - 1]
+        entries.sort(key=lambda e: e["cct"][0])
         if len(entries) > MAX_CCTS:
-            entries = [entries[round(q * (len(entries) - 1) / (MAX_CCTS - 1))] for q in range(MAX_CCTS)]
-        out.append({'lux': lux, 'ccts': entries})
-    out.sort(key=lambda light: light['lux'][0])
+            entries = [
+                entries[round(q * (len(entries) - 1) / (MAX_CCTS - 1))]
+                for q in range(MAX_CCTS)
+            ]
+        out.append({"lux": lux, "ccts": entries})
+    out.sort(key=lambda light: light["lux"][0])
     if len(out) > MAX_LIGHTS:
-        out = [out[round(q * (len(out) - 1) / (MAX_LIGHTS - 1))] for q in range(MAX_LIGHTS)]
+        out = [
+            out[round(q * (len(out) - 1) / (MAX_LIGHTS - 1))] for q in range(MAX_LIGHTS)
+        ]
     return out
 
 
 def reorder_ccm(m, order, transpose):
     if transpose:
         m = [m[3 * c + r] for r in range(3) for c in range(3)]
-    if order == 'rgb':
+    if order == "rgb":
         return m
     # the matrix's rows and columns are in `order' (e.g. gbr): to R, G, B
-    idx = [order.index(c) for c in 'rgb']
+    idx = [order.index(c) for c in "rgb"]
     return [m[3 * idx[r] + idx[c]] for r in range(3) for c in range(3)]
 
 
-def extract(data, syms, encoding='auto', say=print):
-    tries = [encoding] if encoding != 'auto' else list(ENCODINGS)
+def extract(data, syms, encoding="auto", say=print):
+    tries = [encoding] if encoding != "auto" else list(ENCODINGS)
     best = None
     for enc in tries:
         v, stride = values(data, enc)
 
-        def in_named(pattern_words):
-            spans = [(off // stride, (off + size) // stride) for name, _, _, off, size in syms
-                     if any(w in name.lower() for w in pattern_words) and size > 0]
+        def in_named(pattern_words, stride=stride):
+            spans = [
+                (off // stride, (off + size) // stride)
+                for name, _, _, off, size in syms
+                if any(w in name.lower() for w in pattern_words) and size > 0
+            ]
             if not spans:
                 return None
             return lambda i: any(a <= i < b for a, b in spans)
-        ccms = find_ccms(v, in_named(['cc1', 'ccm', 'color_corr', 'colorcorr']))
+
+        ccms = find_ccms(v, in_named(["cc1", "ccm", "color_corr", "colorcorr"]))
         if not ccms:
             ccms = find_ccms(v)
-        lscs = find_lscs(v, in_named(['lsc', 'rolloff', 'shading']))
+        lscs = find_lscs(v, in_named(["lsc", "rolloff", "shading"]))
         if not lscs:
             lscs = find_lscs(v)
         # (where some tables have their triggers, the ones without are taken for chance shapes in other data)
-        ccms = [t for t in ccms if t['cct'] is not None] or ccms
-        lscs = [t for t in lscs if t['cct'] is not None] or lscs
-        refs = find_refs(v, in_named(['awb']))
+        ccms = [t for t in ccms if t["cct"] is not None] or ccms
+        lscs = [t for t in lscs if t["cct"] is not None] or lscs
+        refs = find_refs(v, in_named(["awb"]))
         if not refs:
             refs = find_refs(v)
         score = len(ccms) + 4 * len(lscs) + len(refs)
-        say('encoding %-6s: %d colour matrices, %d lens shading tables, %d reference lights' % (enc, len(ccms), len(lscs), len(refs)))
+        say(
+            f"encoding {enc!s:<6}: {len(ccms):d} colour matrices, {len(lscs):d} lens shading tables, {len(refs):d} reference lights"
+        )
         if best is None or score > best[0]:
             best = (score, enc, stride, ccms, lscs, refs)
     _, enc, stride, ccms, lscs, refs = best
-    return {'encoding': enc, 'stride': stride, 'ccms': ccms, 'lscs': lscs, 'refs': refs}
+    return {"encoding": enc, "stride": stride, "ccms": ccms, "lscs": lscs, "refs": refs}
 
 
 def symbol_at(syms, offset):
     hit = [s for s in syms if s[3] <= offset < s[3] + s[4]]
-    return min(hit, key=lambda s: s[4])[0] if hit else '-'
+    return min(hit, key=lambda s: s[4])[0] if hit else "-"
 
 
 def dump(found, syms):
-    stride = found['stride']
-    print('taken: %s' % found['encoding'])
-    for t in found['ccms']:
-        print('colour matrix at 0x%x (%s): lux %s cct %s' % (t['at'] * stride, symbol_at(syms, t['at'] * stride), t['lux'], t['cct']))
+    stride = found["stride"]
+    print("taken: {}".format(found["encoding"]))
+    for t in found["ccms"]:
+        print(
+            "colour matrix at 0x{:x} ({}): lux {} cct {}".format(
+                t["at"] * stride, symbol_at(syms, t["at"] * stride), t["lux"], t["cct"]
+            )
+        )
         for r in range(3):
-            print('    %8.4f %8.4f %8.4f' % tuple(t['m'][3 * r:3 * r + 3]))
-    for t in found['lscs']:
-        g = t['grids']
-        print('lens shading at 0x%x (%s): lux %s cct %s; centre %s corners %s' % (
-            t['at'] * stride, symbol_at(syms, t['at'] * stride), t['lux'], t['cct'],
-            ' '.join('%.2f' % x[6 * LSC_W + 8] for x in g), ' '.join('%.2f' % x[0] for x in g)))
-    for r in found['refs']:
-        print('reference light at 0x%x (%s): R/G %.3f B/G %.3f, %.0f K%s' % (r['at'] * stride, symbol_at(syms, r['at'] * stride),
-              r['rg'], r['bg'], r['cct'], ' (estimated)' if r['estimated'] else ''))
+            print(
+                "    {:8.4f} {:8.4f} {:8.4f}".format(*tuple(t["m"][3 * r : 3 * r + 3]))
+            )
+    for t in found["lscs"]:
+        g = t["grids"]
+        print(
+            "lens shading at 0x{:x} ({}): lux {} cct {}; centre {} corners {}".format(
+                t["at"] * stride,
+                symbol_at(syms, t["at"] * stride),
+                t["lux"],
+                t["cct"],
+                " ".join(f"{x[6 * LSC_W + 8]:.2f}" for x in g),
+                " ".join(f"{x[0]:.2f}" for x in g),
+            )
+        )
+    for r in found["refs"]:
+        print(
+            "reference light at 0x{:x} ({}): R/G {:.3f} B/G {:.3f}, {:.0f} K{}".format(
+                r["at"] * stride,
+                symbol_at(syms, r["at"] * stride),
+                r["rg"],
+                r["bg"],
+                r["cct"],
+                " (estimated)" if r["estimated"] else "",
+            )
+        )
     if syms:
-        print('symbols: %d (first 40):' % len(syms))
+        print(f"symbols: {len(syms):d} (first 40):")
         for s in syms[:40]:
-            print('    %-32s kind %d parent %d at 0x%x, %d bytes' % s)
+            print("    {!s:<32} kind {:d} parent {:d} at 0x{:x}, {:d} bytes".format(*s))
 
 
-def tuning_from(found, ccm_order='rgb', ccm_transpose=False):
+def tuning_from(found, ccm_order="rgb", ccm_transpose=False):
     """the JSON-able tuning: {ccm: lights, lsc: lights, refs: [[rg, bg, cct]]}"""
-    ccm = into_lights(found['ccms'], 'm')
+    ccm = into_lights(found["ccms"], "m")
     for light in ccm:
-        for e in light['ccts']:
-            e['m'] = reorder_ccm(e['m'], ccm_order, ccm_transpose)
-    lsc = into_lights(found['lscs'], 'grids')
-    refs = sorted(([r['rg'], r['bg'], r['cct']] for r in found['refs']), key=lambda r: -r[2])[:MAX_REFS]
-    return {'ccm': ccm, 'lsc': lsc, 'refs': refs}
+        for e in light["ccts"]:
+            e["m"] = reorder_ccm(e["m"], ccm_order, ccm_transpose)
+    lsc = into_lights(found["lscs"], "grids")
+    refs = sorted(
+        ([r["rg"], r["bg"], r["cct"]] for r in found["refs"]), key=lambda r: -r[2]
+    )[:MAX_REFS]
+    return {"ccm": ccm, "lsc": lsc, "refs": refs}
 
 
 def write_isp(tuning, path):
     """camera_isp.c's RWCISP02; an identity matrix and flat shading where there are none"""
-    ccm = tuning['ccm'] or [{'lux': [0, 1000], 'ccts': [{'cct': [0, 20000], 'm': [1, 0, 0, 0, 1, 0, 0, 0, 1]}]}]
-    lsc = tuning['lsc'] or [{'lux': [0, 1000], 'ccts': [{'cct': [0, 20000], 'grids': [[1.0] * GRID] * 4}]}]
-    out = bytearray(b'RWCISP02')
-    for lights, key, floats in ((ccm, 'm', 9), (lsc, 'grids', 4 * GRID)):
-        out += struct.pack('<I', len(lights))
+    ccm = tuning["ccm"] or [
+        {
+            "lux": [0, 1000],
+            "ccts": [{"cct": [0, 20000], "m": [1, 0, 0, 0, 1, 0, 0, 0, 1]}],
+        }
+    ]
+    lsc = tuning["lsc"] or [
+        {"lux": [0, 1000], "ccts": [{"cct": [0, 20000], "grids": [[1.0] * GRID] * 4}]}
+    ]
+    out = bytearray(b"RWCISP02")
+    for lights, key, floats in ((ccm, "m", 9), (lsc, "grids", 4 * GRID)):
+        out += struct.pack("<I", len(lights))
         for light in lights:
-            out += struct.pack('<ffI', light['lux'][0], light['lux'][1], len(light['ccts']))
-            for e in light['ccts']:
-                v = e[key] if key == 'm' else [x for g in e[key] for x in g]
+            out += struct.pack(
+                "<ffI", light["lux"][0], light["lux"][1], len(light["ccts"])
+            )
+            for e in light["ccts"]:
+                v = e[key] if key == "m" else [x for g in e[key] for x in g]
                 assert len(v) == floats
-                out += struct.pack('<ff', e['cct'][0], e['cct'][1]) + struct.pack('<%df' % floats, *v)
-    out += struct.pack('<I', len(tuning['refs']))
-    for r in tuning['refs']:
-        out += struct.pack('<fff', *r)
-    with open(path, 'wb') as fp:
+                out += struct.pack("<ff", e["cct"][0], e["cct"][1]) + struct.pack(
+                    f"<{int(floats):d}f", *v
+                )
+    out += struct.pack("<I", len(tuning["refs"]))
+    for r in tuning["refs"]:
+        out += struct.pack("<fff", *r)
+    with open(path, "wb") as fp:
         fp.write(bytes(out))
     return len(out)
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0], formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('tuned', nargs='?', help='com.qti.tuned.*.bin')
-    ap.add_argument('-o', '--out', help='camera-<sensor>.isp to write')
-    ap.add_argument('--dump', action='store_true', help='say what was found and where')
-    ap.add_argument('--json', help='write what was found (after --ccm-*) as JSON')
-    ap.add_argument('--from-json', help='make the .isp from this JSON instead of a tuning file')
-    ap.add_argument('--encoding', default='auto', choices=['auto'] + list(ENCODINGS))
-    ap.add_argument('--ccm-order', default='rgb', help="the order of the matrix's colours in the file (e.g. gbr)")
-    ap.add_argument('--ccm-transpose', action='store_true', help='the matrix is stored by columns')
-    ap.add_argument('--refs', help='reference lights instead of the found ones: "rg,bg,cct;rg,bg,cct;..."')
+    ap = argparse.ArgumentParser(
+        description=__doc__.split("\n\n")[0],
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ap.add_argument("tuned", nargs="?", help="com.qti.tuned.*.bin")
+    ap.add_argument("-o", "--out", help="camera-<sensor>.isp to write")
+    ap.add_argument("--dump", action="store_true", help="say what was found and where")
+    ap.add_argument("--json", help="write what was found (after --ccm-*) as JSON")
+    ap.add_argument(
+        "--from-json", help="make the .isp from this JSON instead of a tuning file"
+    )
+    ap.add_argument("--encoding", default="auto", choices=["auto"] + list(ENCODINGS))
+    ap.add_argument(
+        "--ccm-order",
+        default="rgb",
+        help="the order of the matrix's colours in the file (e.g. gbr)",
+    )
+    ap.add_argument(
+        "--ccm-transpose", action="store_true", help="the matrix is stored by columns"
+    )
+    ap.add_argument(
+        "--refs",
+        help='reference lights instead of the found ones: "rg,bg,cct;rg,bg,cct;..."',
+    )
     a = ap.parse_args(argv)
     if a.from_json:
         with open(a.from_json) as fp:
@@ -383,20 +488,34 @@ def main(argv=None):
             dump(found, syms)
         tuning = tuning_from(found, a.ccm_order, a.ccm_transpose)
     else:
-        ap.error('a tuning file or --from-json')
+        ap.error("a tuning file or --from-json")
     if a.refs:
-        tuning['refs'] = sorted(([float(x) for x in r.split(',')] for r in a.refs.split(';') if r), key=lambda r: -r[2])
+        tuning["refs"] = sorted(
+            ([float(x) for x in r.split(",")] for r in a.refs.split(";") if r),
+            key=lambda r: -r[2],
+        )
     if a.json:
-        with open(a.json, 'w') as fp:
+        with open(a.json, "w") as fp:
             json.dump(tuning, fp, indent=1)
-    print('colour matrices: %s; lens shading: %s; reference lights: %d' % (
-        ', '.join('lux %g-%g x %d' % (l['lux'][0], l['lux'][1], len(l['ccts'])) for l in tuning['ccm']) or 'none (identity)',
-        ', '.join('lux %g-%g x %d' % (l['lux'][0], l['lux'][1], len(l['ccts'])) for l in tuning['lsc']) or 'none (flat)',
-        len(tuning['refs'])))
+    print(
+        "colour matrices: {!s}; lens shading: {!s}; reference lights: {:d}".format(
+            ", ".join(
+                "lux {:g}-{:g} x {:d}".format(l["lux"][0], l["lux"][1], len(l["ccts"]))
+                for l in tuning["ccm"]
+            )
+            or "none (identity)",
+            ", ".join(
+                "lux {:g}-{:g} x {:d}".format(l["lux"][0], l["lux"][1], len(l["ccts"]))
+                for l in tuning["lsc"]
+            )
+            or "none (flat)",
+            len(tuning["refs"]),
+        )
+    )
     if a.out:
-        print('%s: %d bytes' % (a.out, write_isp(tuning, a.out)))
+        print(f"{a.out!s}: {int(write_isp(tuning, a.out)):d} bytes")
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

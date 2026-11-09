@@ -4,8 +4,7 @@
 #
 #   bash tools/redfin-verify-batches.sh [FROM] [TO]
 set -uo pipefail
-cd "$(dirname "$0")/.."
-IMG=work/rootimg/iosroot.img
+cd "$(dirname "$0")/.." || exit
 PART=/dev/block/sda19
 SUMS=work/rootimg/iosroot.gib.sha256
 FROM=${1:-0}; TO=${2:-31}

@@ -21,29 +21,31 @@ if [ -d /opt/homebrew/opt/llvm/bin ]; then
 else
 	LLVM=$(dirname "$(command -v clang)") LLD=$(dirname "$(command -v ld.lld)")
 fi
-CC="$LLVM/clang --target=aarch64-none-elf"
-CFLAGS="-O2 -ffreestanding -nostdlib -fno-builtin -fno-pic -fno-pie -mgeneral-regs-only -mstrict-align
-	-fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra ${SHIM_CFLAGS:-}"
-SRCS="start.S shim.c console.c log.c util.c mmu.c fdt.c loader.c ufs.c spmi.c sde.c showlog.c diag.c disptest.c gpuprobe.c gpufw.S smmuprobe.c ramlog.c"
+CC=("$LLVM/clang" --target=aarch64-none-elf)
+# SHIM_CFLAGS is a space-separated list of extra flags.
+read -ra extra <<< "${SHIM_CFLAGS:-}"
+CFLAGS=(-O2 -ffreestanding -nostdlib -fno-builtin -fno-pic -fno-pie -mgeneral-regs-only -mstrict-align
+	-fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra ${extra[@]+"${extra[@]}"})
+SRCS=(start.S shim.c console.c log.c util.c mmu.c fdt.c loader.c ufs.c spmi.c sde.c showlog.c diag.c disptest.c gpuprobe.c gpufw.S smmuprobe.c ramlog.c)
 mkdir -p out
-objs=
-for f in $SRCS; do
-	$CC $CFLAGS -c "$f" -o "out/${f%.*}.o"
-	objs="$objs out/${f%.*}.o"
+objs=()
+for f in "${SRCS[@]}"; do
+	"${CC[@]}" "${CFLAGS[@]}" -c "$f" -o "out/${f%.*}.o"
+	objs+=("out/${f%.*}.o")
 done
 # The image runs wherever ABL puts it with no relocation pass: only the
 # header's image_size (start.o, linked at 0) may be an absolute address.
-abs=$($LLVM/llvm-readelf -r $(echo "$objs" | sed 's| out/start.o||') | grep -c R_AARCH64_ABS64 || true)
+abs=$("$LLVM/llvm-readelf" -r "${objs[@]:1}" | grep -c R_AARCH64_ABS64 || true)
 [ "$abs" = 0 ] || {
-	$LLVM/llvm-readelf -r $(echo "$objs" | sed 's| out/start.o||') | grep -B5 R_AARCH64_ABS64 >&2
+	"$LLVM/llvm-readelf" -r "${objs[@]:1}" | grep -B5 R_AARCH64_ABS64 >&2
 	echo "error: $abs absolute relocations in C objects" >&2
 	exit 1
 }
-$LLD/ld.lld -static -nostdlib -T shim.ld --build-id=none -N $objs -o out/shim.elf
-$LLVM/llvm-objcopy -O binary out/shim.elf out/Image
+"$LLD/ld.lld" -static -nostdlib -T shim.ld --build-id=none -N "${objs[@]}" -o out/shim.elf
+"$LLVM/llvm-objcopy" -O binary out/shim.elf out/Image
 # ABL copies the file; pad to image_size so .bss/stacks exist as zeroed bytes.
-size=$($LLVM/llvm-nm out/shim.elf | awk '$3=="_end"{print $1}')
-truncate -s $((16#$size)) out/Image
+size=$("$LLVM/llvm-nm" out/shim.elf | awk '$3=="_end"{print $1}')
+truncate -s "$((16#$size))" out/Image
 # Google's ABL only takes compressed kernels (stock and TWRP are LZ4 frames);
 # an uncompressed Image is "Unsupported".
 lz4 -q -9 -B7 -f out/Image out/Image.lz4

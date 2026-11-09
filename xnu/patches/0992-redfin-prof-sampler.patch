@@ -9,7 +9,7 @@ a local timer at HZ cross-calls only the CPUs whose active thread belongs to the
 task; the handler records the interrupted user pc/lr (or the kernel pc plus the
 user state saved at entry) and a fault-free frame-pointer walk (AT S1E0R + the
 physical aperture). WAITHZ adds off-CPU samples from a kernel thread. The buffer
-(8 MiB contiguous) is read over /dev/pmem; tools-claude/sweet-prof.py makes the
+(8 MiB contiguous) is read over /dev/pmem; tools/redfin-prof.py makes the
 profile. p disp logs the display power state. p phase NAME flushes the FB,
 SCANOUT and GPU stats windows, logs SWEET PHASE: NAME and marks the profile, so
 bench stats lines align with gesture phases.
@@ -176,7 +176,7 @@ index 682a868..33a0f92 100644
 +		/*
 +		 * 0991: p phase NAME: the FB, SCANOUT and GPU stats lines of the phase that ends now (when it had frames),
 +		 * their windows restart, then "SWEET PHASE: NAME" (and a profiler mark). Every stats line between two
-+		 * PHASE lines covers only that phase (tools-claude/fps-parse.py).
++		 * PHASE lines covers only that phase (tools/fps-parse.py).
 +		 */
 +		const char *q = s + 5;
 +		while (q < end && *q == ' ') {
@@ -230,7 +230,7 @@ index 0000000..1460f34
 + * "I addr path" per image outside the shared cache), records from 16384:
 + *   u64 abs, u64 tid, u8 kind (1 user, 2 kernel, 3 mark, 4 off-CPU), u8 cpu, u8 n, u8 flags, u32 aux (kind 4: the
 + *   thread state), u64 kernel pc (kind 2), then n u64: pc, lr, return addresses (kind 3: the text).
-+ * PC side: tools-claude/sweet-prof.py.
++ * PC side: tools/redfin-prof.py.
 + */
 +#if defined(ARM64_BOARD_CONFIG_SWEET)
 +#include <mach/mach_types.h>

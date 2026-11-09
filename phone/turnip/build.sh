@@ -10,7 +10,7 @@ for s in fill.comp:fill_comp tri.vert:tri_vert tri.frag:tri_frag full.vert:full_
 	glslangValidator -V --target-env vulkan1.2 --vn "${s#*:}" -o out/"${s#*:}".h shaders/"${s%%:*}" >/dev/null
 	cat out/"${s#*:}".h >> out/shaders.h
 done
-"$ROOT/work/userland/bin/ios-cc" -O2 -Wall -I out -I "$ROOT/work/turnip/mesa/include" -o out/vktest vktest.c
+"$ROOT/tools/ios-cc" -O2 -Wall -I out -I "$ROOT/work/turnip/mesa/include" -o out/vktest vktest.c
 codesign -f -s - out/vktest 2>/dev/null
 # u-gpudraw: into the metal2 build's outputs too (lb.sh copies phone/metal2/out)
 [ -d ../metal2/out ] && cp out/vktest ../metal2/out/vktest

@@ -1,14 +1,14 @@
 #!/bin/bash
 # Install SSH (dropbear) + dash + toybox into the running iOS root over the file server
-# (tools/flame-files.py, FlameBridge). Then reboot: launchd reads its job cache at boot.
+# (tools/redfin-files.py, FlameBridge). Then reboot: launchd reads its job cache at boot.
 #
-#   tools/flame-install-ssh.sh
+#   tools/redfin-install-ssh.sh
 #
 # Binaries: work/userland/stage (built from work/userland/src, signed ad hoc). Key:
 # work/userland/ssh/id_ed25519 (ssh -i that -p 2222 root@127.0.0.1 through FlameBridge).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-F="python3 tools/flame-files.py"
+F="python3 tools/redfin-files.py"
 U=work/userland
 $F mkdir /var/local 755
 $F mkdir /var/local/bin 755
@@ -44,4 +44,4 @@ print('launchd jobs:', len(p['LaunchDaemons']))
 PY
 $F put $U/launchd.plist.orig /System/Library/xpc/launchd.plist.orig 644 2>/dev/null || true
 $F put $U/launchd.plist.new /System/Library/xpc/launchd.plist 644
-echo "installed; reboot the phone (tools/flame-cmd.py reboot) and boot again for launchd to start dropbear"
+echo "installed; reboot the phone (tools/redfin-cmd.py reboot) and boot again for launchd to start dropbear"

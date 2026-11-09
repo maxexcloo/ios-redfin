@@ -67,7 +67,7 @@ index d1e9304..f60e148 100644
 +
 +/*
 + * 0995 (ws-u-pace3): boot-args sweetvsync=MASK sweetvsync_lead=US, poke p vsync [MASK [LEAD_US]] (0 = as 0994).
-+ * From the 2026-10-28 page-swipe traces (sweet-trace.py --pace): the ticks came 0.7-1.5 ms after the panel edge
++ * From the 2026-10-28 page-swipe traces (redfin-trace.py --pace): the ticks came 0.7-1.5 ms after the panel edge
 + * (INTF1 frame counter) instead of 0.5, and 17-20 ticks per 8 s were lost, one at almost every 33rd tick.
 + *   0x1  the tick timer without timer coalescing (THREAD_CALL_DELAY_SYS_CRITICAL through IOTimerEventSource's
 + *        kIOTimeOptionsSweetCritical): a kernel thread's 11 ms timer gets min(delay >> 3, 1 ms) of slop

@@ -5,7 +5,7 @@ index 7846f0f..9e52e1a 100644
 @@ -919,8 +919,13 @@ static uint32_t sweet_log_secs = SWEET_LOG_SECS;
   *   +0      "SWEETMIR" | u64 total | u32 ring size
   *   +0x1000 ring bytes (offset of byte n = n % ring size)
-  * The next shim boot copies its tail to UFS (tools/flame-log-pull.sh rescue).
+  * The next shim boot copies its tail to UFS (tools/redfin-log-pull.sh rescue).
 + *
 + * redfin (1033): XNU now takes 0x100000000-0x27ec00000 (all of the 6 GiB bank
 + * above 4 GiB, mkadt.py HIGH_MEM_SIZE), so the sunfish address 0x1fa000000 is

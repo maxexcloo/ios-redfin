@@ -407,7 +407,7 @@ _Static_assert(sizeof(kd_buf) == 64, "kd_buf");
 _Static_assert(sizeof(struct swt_header) == 216, "swt_header");
 _Static_assert(sizeof(struct swt_thread) == 112, "swt_thread");
 
-/* sweettrace -F (ws-u-lab), kept in step with tools-claude/swtr-reduce.py; only used by the worker thread */
+/* sweettrace -F (ws-u-lab), kept in step with a804771:tools-claude/swtr-reduce.py; only used by the worker thread */
 #define SWT_CODE(c, s, n)       ((uint32_t)(c) << 24 | (uint32_t)(s) << 16 | (uint32_t)(n) << 2)
 #define SWT_SCHED               SWT_CODE(1, 0x40, 0x00)
 #define SWT_HANDOFF             SWT_CODE(1, 0x40, 0x02)

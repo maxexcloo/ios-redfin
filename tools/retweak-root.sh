@@ -4,7 +4,7 @@
 #
 #   sudo bash tools/retweak-root.sh work/rootimg/iosroot.img
 #
-# Mounts the image read-write, reruns tools/sweet-root-tweaks.py and
+# Mounts the image read-write, reruns tools/redfin-root-tweaks.py and
 # tools/prune-root.py, fsck's it, detaches. Both scripts are idempotent and both
 # leave backups (*.before-prune) so prune-root.py --revert undoes it later.
 set -euo pipefail
@@ -38,7 +38,7 @@ MOUNTS=("$MNT")
 df -h "$MNT" | sed 's/^/  /'
 
 say "bring-up tweaks (idempotent)"
-python3 -I tools/sweet-root-tweaks.py "$MNT" || die "sweet-root-tweaks.py failed"
+python3 -I tools/redfin-root-tweaks.py "$MNT" || die "redfin-root-tweaks.py failed"
 
 say "prune daemons that crash-loop without hardware"
 python3 -I tools/prune-root.py "$MNT" || die "prune-root.py failed"

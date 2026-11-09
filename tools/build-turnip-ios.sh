@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC2086 # opts and cross_arg are option lists
 # Build Turnip (Mesa's Vulkan driver for Adreno) for iOS 16 arm64 with the darwin kernel backend.
 #   tools/build-turnip-ios.sh [host]     (host: a macOS build of the same source, for checks on the Mac)
 # Source: work/turnip/mesa = Mesa 85fda3b3 + UniXNU's patches/mesa (in their order, see
@@ -47,7 +48,9 @@ cpp_link_args = [$flags]
 objc_link_args = [$flags]
 EOF
 	cross_arg="--cross-file $cross"
-	export CC=$(xcrun --sdk iphoneos --find clang) CXX=$(xcrun --sdk iphoneos --find clang++)
+	CC=$(xcrun --sdk iphoneos --find clang)
+	CXX=$(xcrun --sdk iphoneos --find clang++)
+	export CC CXX
 else
 	out=$T/build-host
 	cross_arg=""

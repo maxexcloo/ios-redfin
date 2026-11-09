@@ -17,7 +17,7 @@
  *   bluetool -R        serve (what the launchd job runs); also with no arguments
  *   bluetool -h        this text
  *
- * Install (tools-claude/bt-launchd.py --bluetool): /var/local/bin/bluetool, and the com.apple.BlueTool job's
+ * Install (tools/bt-launchd.py --bluetool): /var/local/bin/bluetool, and the com.apple.BlueTool job's
  * program pointed at it (the stock binary stays untouched). Log: /private/var/tmp/bluetool-redfin.log
  * (the job runs as mobile). /var/local/bluetool.result (a number) answers that result instead of 0, to test
  * bluetoothd's failure path.

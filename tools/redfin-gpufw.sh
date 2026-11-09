@@ -102,5 +102,5 @@ print('zap: 1 PT_LOAD at paddr 0x%x, %d bytes = a620_zap.b02' % (pa, fsz))
 PY
 
 echo
-echo "$(ls "$OUT"/a650_* "$OUT"/a620_* | wc -l | tr -d ' ') files in ${OUT}/"
+echo "$(find "$OUT" -maxdepth 1 \( -name 'a650_*' -o -name 'a620_*' \) | wc -l | tr -d ' ') files in ${OUT}/"
 echo "next: python3 -I tools/mkpayload.py KERNEL ADT PAYLOAD --gpufw $(cd "$OUT" && pwd)"

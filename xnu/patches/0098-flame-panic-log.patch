@@ -10,7 +10,7 @@ index 032adc884..56a44fa30 100644
 + * thread, results in the console (and so in the live log); "panic" panics
 + * (to test the panic path); "reboot" resets
   * the phone with PSCI (the shim already set the PMIC reason to
-  * bootloader, so it lands in fastboot). tools/flame-cmd.py sends them.
+  * bootloader, so it lands in fastboot). tools/redfin-cmd.py sends them.
   */
 @@ -934,6 +935,10 @@ ud_cmd_thread(void *arg __unused, wait_result_t wr __unused)
  				continue;

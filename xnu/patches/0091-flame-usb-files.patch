@@ -19,7 +19,7 @@ index 000000000..8209bf151
 +/*
 + * File server for the running iOS root, over USB Ethernet: TCP
 + * 192.168.7.2:2223 (on the Mac: 127.0.0.1:2223 through FlameBridge,
-+ * tools/flame-files.py). One request per connection, a header line then
++ * tools/redfin-files.py). One request per connection, a header line then
 + * data:
 + *
 + *   PUT <path> <mode-octal> <size>\n<size bytes>  -> "OK <size>\n"  (root:wheel)
@@ -416,7 +416,7 @@ index 7d06a6cf8..032adc884 100644
  		 * packet to end it; one pad byte does the same (IP ignores it). */
  		if ((len % 512) == 0) {
 @@ -838,6 +887,8 @@ ud_thread(void *arg __unused, wait_result_t wr __unused)
-  * bootloader, so it lands in fastboot). tools/flame-cmd.py sends them.
+  * bootloader, so it lands in fastboot). tools/redfin-cmd.py sends them.
   */
  extern void sweet_poke_run(const char *text, unsigned len);
 +struct sync_args;

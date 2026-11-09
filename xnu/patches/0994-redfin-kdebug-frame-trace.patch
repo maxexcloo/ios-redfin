@@ -408,7 +408,7 @@ index 0000000..42a9ff2
 +++ b/iokit/Kernel/arm/SweetTrace.h
 @@ -0,0 +1,70 @@
 +/*
-+ * 0994: kdebug events for the frame tracer (phone/tools/sweettrace.c records them, tools-claude/sweet-trace.py reads
++ * 0994: kdebug events for the frame tracer (phone/tools/sweettrace.c records them, tools/redfin-trace.py reads
 + * them). Class DBG_DRIVERS (6), subclass 0xF5: debugid 0x06F5_0000 | code << 2 | DBG_FUNC_START (1) / END (2).
 + * KERNEL_DEBUG_CONSTANT: compiled in on DEVELOPMENT kernels (KDEBUG_LEVEL_STANDARD), and only a load of kdebug_enable
 + * and a branch while no trace runs (the arguments are evaluated inside the branch). No boot-arg.

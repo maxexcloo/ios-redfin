@@ -6,7 +6,7 @@
 set -e
 cd "$(dirname "$0")"
 mkdir -p out
-../../work/userland/bin/ios-cc -O2 -Wall -Wextra -Wno-unused-parameter -fobjc-arc -dynamiclib \
+../../tools/ios-cc -O2 -Wall -Wextra -Wno-unused-parameter -fobjc-arc -dynamiclib \
 	-install_name /var/local/lib/SweetFPS.dylib \
 	-framework Foundation -framework QuartzCore -framework UIKit \
 	-o out/SweetFPS.dylib SweetFPS.m SweetSB.m

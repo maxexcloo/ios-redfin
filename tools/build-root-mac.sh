@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC2012 # ls only reports sizes
 # Build the iOS 16.7.16 (iPhone X, 20H392) root volume for the Pixel 5 port, on macOS.
 # Self-contained: mounts the three IPSW images, makes the HFS+ volume, copies,
 # tweaks, fsck's, and leaves a raw image at work/rootimg/iosroot.img.
@@ -30,7 +31,7 @@ die() { printf '\n\033[31mFAILED: %s\033[0m\n' "$*" >&2; exit 1; }
 for f in "$OS" "$SYSOS" "$APPOS"; do
 	[[ -f $f ]] || die "missing $f"
 done
-[[ -f tools/sweet-root-tweaks.py ]] || die "missing tools/sweet-root-tweaks.py"
+[[ -f tools/redfin-root-tweaks.py ]] || die "missing tools/redfin-root-tweaks.py"
 
 # A previous failed run leaves these behind; they are never valid input.
 rm -f "$OUT" "$OUT.dmg"
@@ -111,7 +112,6 @@ n=0
 for f in "$DSC"/*; do ln -f "$f" "$R/System/Library/Caches/com.apple.dyld/${f##*/}" && n=$((n+1)); done
 echo "  shared cache: $n files linked"
 for c in OS App; do
-	cnt=0
 	(cd "$R/private/preboot/Cryptexes/$c" &&
 	 find . ! -type d ! -path './System/Library/Caches/com.apple.dyld/*') |
 	while IFS= read -r f; do
@@ -142,7 +142,7 @@ chmod 0600 "$R/private/var/keybags/systembag.kb"
 echo "  keybag written"
 
 say "bring-up tweaks (Setup skip, activation, daemons)"
-python3 -I tools/sweet-root-tweaks.py "$R" || die "sweet-root-tweaks.py failed"
+python3 -I tools/redfin-root-tweaks.py "$R" || die "redfin-root-tweaks.py failed"
 
 say "prune daemons that crash-loop without hardware"
 # fairplayd (relaunch loop + locationd deadlock) and vmd (CommCenter retry loop):

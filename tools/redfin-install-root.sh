@@ -60,7 +60,6 @@ if [[ $MODE == verify ]]; then verify; exit 0; fi
 
 echo
 echo "This overwrites the first $((ISIZE >> 30)) GiB of $PART - Android's apps, photos and settings."
-die_marker=1
 
 say "unmount anything holding /data"
 sh_ 'umount /data 2>/dev/null; umount /sdcard 2>/dev/null; true'

@@ -2,7 +2,7 @@
 # Build pmem and gpu for iOS 16 arm64 into phone/gpu/out (signed ad hoc).
 set -e
 cd "$(dirname "$0")"
-CC=../../work/userland/bin/ios-cc
+CC=../../tools/ios-cc
 mkdir -p out
 $CC -O2 -Wall -Wextra -Wno-unused-parameter -o out/pmem pmem_tool.c pmem.c
 CORE=../../work/dxb/xnu/bsd/dev	# the kernel's A640 core, shared

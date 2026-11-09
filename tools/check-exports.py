@@ -8,33 +8,56 @@ must name a symbol present in ALLSYMBOLS (`nm -gj` of the linked kernel, from th
 build tree). Entries are "sym" or "exported:sym"; a trailing '*' is a prefix match.
 Prints the entries kextsymboltool would reject, per file.
 """
-import os, sys
 
-SETS = ['BSDKernel', 'IOKit', 'Libkern', 'Mach', 'MACFramework', 'Unsupported', 'Private']
+import os
+import sys
+from pathlib import Path
+
+SETS = [
+    "BSDKernel",
+    "IOKit",
+    "Libkern",
+    "Mach",
+    "MACFramework",
+    "Unsupported",
+    "Private",
+]
 
 
 def main():
     src, allsyms = sys.argv[1], sys.argv[2]
-    platform = sys.argv[3] if len(sys.argv) > 3 else 'MacOSX'
-    have = set(l.strip() for l in open(allsyms) if l.strip())
+    platform = sys.argv[3] if len(sys.argv) > 3 else "MacOSX"
+    have = {
+        l.strip()
+        for l in Path(allsyms).read_text().splitlines(keepends=True)
+        if l.strip()
+    }
     missing_total = 0
     for s in SETS:
-        for name in (f'{s}.exports', f'{s}.arm64.exports', f'{s}.arm64.{platform}.exports'):
-            path = os.path.join(src, 'config', name)
+        for name in (
+            f"{s}.exports",
+            f"{s}.arm64.exports",
+            f"{s}.arm64.{platform}.exports",
+        ):
+            path = os.path.join(src, "config", name)
             if not os.path.exists(path):
                 continue
-            for line in open(path):
-                e = line.split('#')[0].strip()
+            for line in Path(path).read_text().splitlines(keepends=True):
+                e = line.split("#")[0].strip()
                 if not e:
                     continue
-                target = e.split(':', 1)[1].strip() if ':' in e else e
-                ok = any(h.startswith(target[:-1]) for h in have) if target.endswith('*') else target in have
+                target = e.split(":", 1)[1].strip() if ":" in e else e
+                ok = (
+                    any(h.startswith(target[:-1]) for h in have)
+                    if target.endswith("*")
+                    else target in have
+                )
                 if not ok:
-                    print(f'{name}: {e}')
+                    print(f"{name}: {e}")
                     missing_total += 1
-    print(f'{missing_total} missing', file=sys.stderr)
+    print(f"{missing_total} missing", file=sys.stderr)
     return 1 if missing_total else 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

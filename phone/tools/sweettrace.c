@@ -1,5 +1,5 @@
 /*
- * sweettrace: record a kdebug trace for the frame-pacing analysis (tools-claude/sweet-trace.py).
+ * sweettrace: record a kdebug trace for the frame-pacing analysis (tools/redfin-trace.py).
  *
  *   sweettrace [-t SECS] [-o FILE] [-b KBUFS] [-m MAXEVENTS] [-r MS] [-d DELAY] [-p PID,...] [-c CLASS[/SUB],...]
  *              [-S] [-I] [-n]

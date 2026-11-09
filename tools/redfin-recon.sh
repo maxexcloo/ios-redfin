@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck disable=SC2016 # single-quoted sh_ commands expand on the phone
 # Collect the Pixel 5 (redfin) facts the port needs but the kernel source can't give:
 # the live device tree ABL hands over, the real RAM map, partition layout, firmware
 # file names and the boot image headers. Read-only on the phone: nothing is written,
@@ -10,9 +11,8 @@
 #                                      vendor.img): boot headers + firmware listing
 #
 # Output goes to recon/ (gitignored: the live DT and getprop hold the serial number).
-# Works from Linux, macOS, or Git Bash / WSL on Windows with platform-tools on PATH.
 set -uo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit
 OUT=recon; mkdir -p "$OUT"
 mode=${1:-}
 sh_() { adb shell "$@" 2>&1 | tr -d '\r'; }

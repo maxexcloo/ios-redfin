@@ -2,17 +2,22 @@
 """Send commands to the phone's command server (bsd/dev/sweet_usb.c, udp 192.168.7.2:5141)
 and show the results from the live log (udp 5140).
 
-  tools/flame-cmd.py 'r 0x15000020 3'            one poke line (see bsd/dev/sweet_poke.c)
-  tools/flame-cmd.py -f tools/poke/X.txt         a poke script file
-  tools/flame-cmd.py reboot                      PSCI reset into fastboot
-  tools/flame-cmd.py --wait 5 ...                listen longer for the results
+  tools/redfin-cmd.py 'r 0x15000020 3'            one poke line (see bsd/dev/sweet_poke.c)
+  tools/redfin-cmd.py -f tools/poke/X.txt         a poke script file
+  tools/redfin-cmd.py reboot                      PSCI reset into fastboot
+  tools/redfin-cmd.py --wait 5 ...                listen longer for the results
 
 Results are the POKE:/SWEET CMD: lines the phone prints; all received log
-text is also appended to logs/live.txt. Don't run tools/flame-live.py at the
+text is also appended to logs/live.txt. Don't run tools/redfin-live.py at the
 same time (one listener gets the datagrams).
 """
 
-import argparse, os, socket, sys, time
+import argparse
+import os
+import socket
+import sys
+import time
+from pathlib import Path
 
 ap = argparse.ArgumentParser()
 ap.add_argument("cmd", nargs="*")
@@ -22,7 +27,7 @@ ap.add_argument(
     "--all", action="store_true", help="print every log line, not just results"
 )
 a = ap.parse_args()
-text = open(a.file).read() if a.file else " ".join(a.cmd)
+text = Path(a.file).read_text() if a.file else " ".join(a.cmd)
 if not text.strip():
     ap.error("nothing to send")
 rx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -31,7 +36,7 @@ try:
     rx.bind(("0.0.0.0", 5140))
     rx.settimeout(0.5)
 except OSError:
-    # flame-live.py (or flame-run.sh's live recorder) holds the port: the
+    # redfin-live.py holds the port: the
     # results go to its file instead.
     print(
         "(live log port busy: results go to the running live recorder)", file=sys.stderr
@@ -52,7 +57,7 @@ with open(os.path.join(logdir, "usb-live.log"), "ab") as f:
     while time.time() < end:
         try:
             data, _ = rx.recvfrom(65536)
-        except socket.timeout:
+        except TimeoutError:
             continue
         f.write(data)
         for line in data.decode(errors="replace").splitlines():

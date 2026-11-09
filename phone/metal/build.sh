@@ -4,7 +4,7 @@ set -e
 cd "$(dirname "$0")"
 B=out/SweetMetal.bundle
 rm -rf "$B" && mkdir -p "$B"
-../../work/userland/bin/ios-cc -O2 -Wall -fobjc-arc -bundle -o "$B/SweetMetal" SweetMetal.m a6draw.m sweetgpu.c \
+../../tools/ios-cc -O2 -Wall -fobjc-arc -bundle -o "$B/SweetMetal" SweetMetal.m a6draw.m sweetgpu.c \
 	-framework Foundation -framework Metal -framework IOSurface -framework IOKit
 cp Info.plist "$B/Info.plist"
 # pipeline templates (tools/rdtemplate.py export of work/mesa/draw captures)

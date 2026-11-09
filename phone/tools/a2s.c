@@ -1,7 +1,7 @@
 /*
  * a2s [ADDR...]: shared-cache addresses (from pstack, any process: one slide per boot) to image and nearest
  * symbol via dladdr, after loading the frameworks a renderer uses. Addresses from stdin without arguments.
- * tools/flame-profile.py-free profiling: pstack samples -> a2s on the phone.
+ * tools/redfin-profile.py-free profiling: pstack samples -> a2s on the phone.
  */
 #include <dlfcn.h>
 #include <stdio.h>

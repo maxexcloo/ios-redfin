@@ -10,7 +10,7 @@ enable line PM7250B GPIO1 goes high through the APPS SPMI channel (as
 shim/spmi.c), SE9 clocks from gcc-lito (XO), pins gpio46/47 function 1.
 Brought up 8 s after start on its own thread; sweethaptic=2 also buzzes
 once when ready. sweet_haptic_buzz(ms, strength) is the API; the poke /
-USB command line "v MS [STRENGTH]" calls it (tools/flame-cmd.py 'v 200').
+USB command line "v MS [STRENGTH]" calls it (tools/redfin-cmd.py 'v 200').
 Not yet hooked to iOS (iPhone X haptics go through its audio path).
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -51,7 +51,7 @@ index 0000000..5e39c11
 + * Boot-arg sweethaptic=1: bring it up (once, on its own thread, 8 s after start);
 + * sweethaptic=2: also one 80 ms buzz when it is ready. sweet_haptic_buzz(ms, strength)
 + * (strength 1..127, open-loop RTP level) is the kernel API; the poke/command line
-+ * "v MS [STRENGTH]" calls it (tools/flame-cmd.py 'v 200').
++ * "v MS [STRENGTH]" calls it (tools/redfin-cmd.py 'v 200').
 + *
 + * Writes outside the SE and the motor: GCC branch votes and the SE9 RCG (XO), the two TLMM
 + * pin configs, and three PM7250B GPIO1 registers (output high = motor enabled).

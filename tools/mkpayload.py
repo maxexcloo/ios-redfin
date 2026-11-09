@@ -27,24 +27,32 @@ ADT and boot_args, inside topOfKernelData (never handed to the VM), and the
 ADT gets /chosen/memory-map "RAMDisk" = <phys, size> for IOFindBSDRoot to
 turn into md0 (boot with rd=md0).
 """
-import argparse, os, struct, sys
+
+import argparse
+import os
+import struct
+import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import adt  # noqa: E402
+import adt
 
 LC_SEGMENT_64, LC_UNIXTHREAD, LC_DYLD_CHAINED_FIXUPS = 0x19, 0x5, 0x80000034
 PAGE = 0x4000
 BOOT_LINE_LENGTH = 608
 CMDLINE = 0x48
-SEG_TABLE = CMDLINE + BOOT_LINE_LENGTH	# 0x2a8
-RAMLOG = CMDLINE + BOOT_LINE_LENGTH - 16	# 0x298: ring_va, total_va
+SEG_TABLE = CMDLINE + BOOT_LINE_LENGTH  # 0x2a8
+RAMLOG = CMDLINE + BOOT_LINE_LENGTH - 16  # 0x298: ring_va, total_va
 
 
 def kernel_symbols(path, *names):
     """Addresses of the named symbols (0 if absent), from nm."""
     import subprocess
+
     found = dict.fromkeys(names, 0)
-    out = subprocess.run(['nm', path], capture_output=True, text=True).stdout
+    out = subprocess.run(
+        ["nm", path], capture_output=True, text=True, check=False
+    ).stdout
     for line in out.splitlines():
         parts = line.split()
         if len(parts) == 3 and parts[2] in found:
@@ -53,53 +61,71 @@ def kernel_symbols(path, *names):
 
 
 def parse_macho(buf):
-    magic, cputype, cpusub, ftype, ncmds, sizeofcmds, flags, _ = struct.unpack_from('<8I', buf, 0)
-    assert magic == 0xfeedfacf, 'not a 64-bit Mach-O'
+    magic, cputype, cpusub, _ftype, ncmds, _sizeofcmds, _flags, _ = struct.unpack_from(
+        "<8I", buf, 0
+    )
+    assert magic == 0xFEEDFACF, "not a 64-bit Mach-O"
     segs, entry, fixups = [], None, None
     off = 32
     for _ in range(ncmds):
-        cmd, size = struct.unpack_from('<II', buf, off)
+        cmd, size = struct.unpack_from("<II", buf, off)
         if cmd == LC_SEGMENT_64:
-            name = buf[off + 8:off + 24].split(b'\0')[0].decode()
-            vmaddr, vmsize, fileoff, filesize = struct.unpack_from('<4Q', buf, off + 24)
-            segs.append(dict(name=name, vmaddr=vmaddr, vmsize=vmsize, fileoff=fileoff, filesize=filesize))
+            name = buf[off + 8 : off + 24].split(b"\0")[0].decode()
+            vmaddr, vmsize, fileoff, filesize = struct.unpack_from("<4Q", buf, off + 24)
+            segs.append(
+                {
+                    "name": name,
+                    "vmaddr": vmaddr,
+                    "vmsize": vmsize,
+                    "fileoff": fileoff,
+                    "filesize": filesize,
+                }
+            )
         elif cmd == LC_UNIXTHREAD:
-            flavor, count = struct.unpack_from('<II', buf, off + 8)
+            _flavor, _count = struct.unpack_from("<II", buf, off + 8)
             # arm_thread_state64: x0..x28, fp, lr, sp, pc, cpsr
-            entry, = struct.unpack_from('<Q', buf, off + 16 + 32 * 8)
+            (entry,) = struct.unpack_from("<Q", buf, off + 16 + 32 * 8)
         elif cmd == LC_DYLD_CHAINED_FIXUPS:
-            fixups = struct.unpack_from('<II', buf, off + 8)	# dataoff, datasize
+            fixups = struct.unpack_from("<II", buf, off + 8)  # dataoff, datasize
         off += size
-    return dict(cputype=cputype, cpusub=cpusub & 0xff, segs=segs, entry=entry, fixups=fixups)
+    return {
+        "cputype": cputype,
+        "cpusub": cpusub & 0xFF,
+        "segs": segs,
+        "entry": entry,
+        "fixups": fixups,
+    }
 
 
 def apply_chained_fixups(buf, m):
     """Rewrite every chained rebase in buf (the whole file) to its plain target VA."""
-    if not m['fixups']:
+    if not m["fixups"]:
         return 0
-    data_off, _ = m['fixups']
-    _, starts_off, _, _, imports_count, _, _ = struct.unpack_from('<7I', buf, data_off)
-    assert imports_count == 0, 'kernel has binds; only rebases are supported'
-    image_base = m['segs'][0]['vmaddr']		# __TEXT, holds the mach header
-    seg_count, = struct.unpack_from('<I', buf, data_off + starts_off)
+    data_off, _ = m["fixups"]
+    _, starts_off, _, _, imports_count, _, _ = struct.unpack_from("<7I", buf, data_off)
+    assert imports_count == 0, "kernel has binds; only rebases are supported"
+    image_base = m["segs"][0]["vmaddr"]  # __TEXT, holds the mach header
+    (seg_count,) = struct.unpack_from("<I", buf, data_off + starts_off)
     nfix = 0
     for i in range(seg_count):
-        seg_info, = struct.unpack_from('<I', buf, data_off + starts_off + 4 + 4 * i)
+        (seg_info,) = struct.unpack_from("<I", buf, data_off + starts_off + 4 + 4 * i)
         if not seg_info:
             continue
         base = data_off + starts_off + seg_info
-        size, page_size, fmt, seg_offset, max_valid, page_count = struct.unpack_from('<IHHQIH', buf, base)
-        starts = struct.unpack_from('<%dH' % page_count, buf, base + 22)
-        seg = m['segs'][i]
+        _size, page_size, fmt, _seg_offset, _max_valid, page_count = struct.unpack_from(
+            "<IHHQIH", buf, base
+        )
+        starts = struct.unpack_from(f"<{int(page_count):d}H", buf, base + 22)
+        seg = m["segs"][i]
         for p, start in enumerate(starts):
-            if start == 0xffff:
+            if start == 0xFFFF:
                 continue
-            assert not start & 0x8000, 'DYLD_CHAINED_PTR_START_MULTI not supported'
-            loc = seg['fileoff'] + p * page_size + start
+            assert not start & 0x8000, "DYLD_CHAINED_PTR_START_MULTI not supported"
+            loc = seg["fileoff"] + p * page_size + start
             while True:
-                raw, = struct.unpack_from('<Q', buf, loc)
+                (raw,) = struct.unpack_from("<Q", buf, loc)
                 target, nxt, stride = decode(raw, fmt, image_base)
-                struct.pack_into('<Q', buf, loc, target)
+                struct.pack_into("<Q", buf, loc, target)
                 nfix += 1
                 if not nxt:
                     break
@@ -109,99 +135,113 @@ def apply_chained_fixups(buf, m):
 
 def decode(raw, fmt, image_base):
     """Return (unslid target VA, next, stride) for one chained pointer."""
-    if fmt in (2, 6):		# DYLD_CHAINED_PTR_64 / _64_OFFSET
-        assert not raw >> 63, 'bind in kernel'
+    if fmt in (2, 6):  # DYLD_CHAINED_PTR_64 / _64_OFFSET
+        assert not raw >> 63, "bind in kernel"
         target = raw & ((1 << 36) - 1)
-        high8 = (raw >> 36) & 0xff
-        nxt = (raw >> 51) & 0xfff
+        high8 = (raw >> 36) & 0xFF
+        nxt = (raw >> 51) & 0xFFF
         if fmt == 6:
             target += image_base
         return target | (high8 << 56), nxt, 4
-    if fmt == 8:		# DYLD_CHAINED_PTR_64_KERNEL_CACHE
+    if fmt == 8:  # DYLD_CHAINED_PTR_64_KERNEL_CACHE
         target = raw & ((1 << 30) - 1)
-        nxt = (raw >> 51) & 0xfff
+        nxt = (raw >> 51) & 0xFFF
         return image_base + target, nxt, 4
-    if fmt in (1, 7, 9, 12):	# arm64e variants (stock VMAPPLE kernel only; PAC is not re-signed)
+    if fmt in (
+        1,
+        7,
+        9,
+        12,
+    ):  # arm64e variants (stock VMAPPLE kernel only; PAC is not re-signed)
         auth = raw >> 63
-        nxt = (raw >> 51) & 0x7ff
+        nxt = (raw >> 51) & 0x7FF
         stride = 4 if fmt in (7, 12) else 8
         if auth:
-            target = raw & 0xffffffff
+            target = raw & 0xFFFFFFFF
         else:
             target = raw & ((1 << 43) - 1)
-            target |= ((raw >> 43) & 0xff) << 56
+            target |= ((raw >> 43) & 0xFF) << 56
         if fmt in (7, 9, 12) or auth:
             target += image_base
         return target, nxt, stride
-    raise ValueError(f'unsupported chained pointer format {fmt}')
+    raise ValueError(f"unsupported chained pointer format {fmt}")
 
 
 def add_ramdisk_to_adt(adt_blob, phys, size):
     """Return the ADT with /chosen/memory-map RAMDisk = <phys, size> (two uintptr_t)."""
     root, _ = adt.parse(adt_blob)
-    chosen = next(c for c in root.children if c.name == 'chosen')
-    mmap = next(c for c in chosen.children if c.name == 'memory-map')
-    assert mmap.prop('RAMDisk') is None, 'ADT already has a RAMDisk'
-    mmap.props.append(('RAMDisk', 0, struct.pack('<2Q', phys, size)))
+    chosen = next(c for c in root.children if c.name == "chosen")
+    mmap = next(c for c in chosen.children if c.name == "memory-map")
+    assert mmap.prop("RAMDisk") is None, "ADT already has a RAMDisk"
+    mmap.props.append(("RAMDisk", 0, struct.pack("<2Q", phys, size)))
     return adt.serialize(root)
 
 
 def add_poke_to_adt(adt_blob, script):
     """Return the ADT with /chosen/sweet-poke = the register script (bsd/dev/sweet_poke.c)."""
     root, _ = adt.parse(adt_blob)
-    chosen = next(c for c in root.children if c.name == 'chosen')
-    chosen.props = [p for p in chosen.props if p[0] != 'sweet-poke']
-    chosen.props.append(('sweet-poke', 0, script.encode() + b'\0'))
+    chosen = next(c for c in root.children if c.name == "chosen")
+    chosen.props = [p for p in chosen.props if p[0] != "sweet-poke"]
+    chosen.props.append(("sweet-poke", 0, script.encode() + b"\0"))
     return adt.serialize(root)
 
 
 # redfin Adreno 620 (kgsl adreno_gpu_core_a620): a650 GMU + SQE, a620 zap. a620_zap.mdt's only
 # PT_LOAD segment is b02 (paddr 0x5000, 0x68c bytes, relocatable): it goes at pil_gpu_region's start.
-GPU_FW = ('a650_gmu.bin', 'a650_sqe.fw', 'a620_zap.mdt', 'a620_zap.b02')
+GPU_FW = ("a650_gmu.bin", "a650_sqe.fw", "a620_zap.mdt", "a620_zap.b02")
 
 
 def add_gpufw_to_adt(adt_blob, fw_dir):
     """Return the ADT with /chosen/gpufw,<file> = the Adreno firmware (bsd/dev/sweet_gpu.c)."""
     root, _ = adt.parse(adt_blob)
-    chosen = next(c for c in root.children if c.name == 'chosen')
-    chosen.props = [p for p in chosen.props if not p[0].startswith('gpufw,')]
+    chosen = next(c for c in root.children if c.name == "chosen")
+    chosen.props = [p for p in chosen.props if not p[0].startswith("gpufw,")]
     for name in GPU_FW:
-        chosen.props.append(('gpufw,' + name, 0, open(os.path.join(fw_dir, name), 'rb').read()))
+        chosen.props.append(
+            ("gpufw," + name, 0, Path(os.path.join(fw_dir, name)).read_bytes())
+        )
     return adt.serialize(root)
 
 
 def adt_dram(adt_blob):
     """Kernel-managed RAM <base, size> from the ADT's /chosen dram-base/dram-size."""
     root, _ = adt.parse(adt_blob)
-    chosen = next(c for c in root.children if c.name == 'chosen')
-    return (struct.unpack('<Q', chosen.prop('dram-base'))[0],
-            struct.unpack('<Q', chosen.prop('dram-size'))[0])
+    chosen = next(c for c in root.children if c.name == "chosen")
+    return (
+        struct.unpack("<Q", chosen.prop("dram-base"))[0],
+        struct.unpack("<Q", chosen.prop("dram-size"))[0],
+    )
 
 
-def build(kernel_path, adt_path, cmdline, ramdisk_path=None, poke_path=None, gpufw_dir=None):
-    buf = bytearray(open(kernel_path, 'rb').read())
+def build(
+    kernel_path, adt_path, cmdline, ramdisk_path=None, poke_path=None, gpufw_dir=None
+):
+    buf = bytearray(Path(kernel_path).read_bytes())
     m = parse_macho(buf)
     nfix = apply_chained_fixups(buf, m)
-    segs = [s for s in m['segs'] if s['vmsize']]
-    text = m['segs'][0]
-    assert text['name'] == '__TEXT' and text['fileoff'] == 0
+    segs = [s for s in m["segs"] if s["vmsize"]]
+    text = m["segs"][0]
+    assert text["name"] == "__TEXT" and text["fileoff"] == 0
     # virt_base: 32MB (16K-granule L2 block) below the mach header, so start.s's
     # block mapping that starts at the header's block begins exactly at phys_base.
-    virt_base = text['vmaddr'] & ~(0x2000000 - 1)
-    kernel_end = max(s['vmaddr'] + s['vmsize'] for s in segs)
+    virt_base = text["vmaddr"] & ~(0x2000000 - 1)
+    kernel_end = max(s["vmaddr"] + s["vmsize"] for s in segs)
     kernel_end = (kernel_end + PAGE - 1) & ~(PAGE - 1)
 
-    adt_blob = open(adt_path, 'rb').read()
+    adt_blob = Path(adt_path).read_bytes()
     if poke_path:
-        adt_blob = add_poke_to_adt(adt_blob, open(poke_path).read())
+        adt_blob = add_poke_to_adt(adt_blob, Path(poke_path).read_text())
     if gpufw_dir:
         adt_blob = add_gpufw_to_adt(adt_blob, gpufw_dir)
     # The ADT decides where the kernel's RAM is (mkadt.py --highmem).
     PHYS_BASE, MEM_SIZE = adt_dram(adt_blob)
-    pieces = [(s['vmaddr'], s['vmsize'], buf[s['fileoff']:s['fileoff'] + s['filesize']]) for s in segs]
+    pieces = [
+        (s["vmaddr"], s["vmsize"], buf[s["fileoff"] : s["fileoff"] + s["filesize"]])
+        for s in segs
+    ]
     ramdisk = None
     if ramdisk_path:
-        image = open(ramdisk_path, 'rb').read()
+        image = Path(ramdisk_path).read_bytes()
         rd_size = (len(image) + PAGE - 1) & ~(PAGE - 1)
         rd_va = kernel_end
         kernel_end = rd_va + rd_size
@@ -216,40 +256,69 @@ def build(kernel_path, adt_path, cmdline, ramdisk_path=None, poke_path=None, gpu
     for vmaddr, vmsize, data in pieces:
         off = len(out)
         out += data
-        out += b'\0' * (-len(out) & 0xf)
+        out += b"\0" * (-len(out) & 0xF)
         seg_table.append((vmaddr, vmsize, off, len(data)))
     adt_off = len(out)
     out += adt_blob
-    out += b'\0' * (-len(out) & 0xf)
+    out += b"\0" * (-len(out) & 0xF)
 
-    struct.pack_into('<8sII', out, 0, b'SWEETXNU', 1, len(pieces))
-    struct.pack_into('<7Q', out, 0x10, virt_base, m['entry'], adt_off, len(adt_blob), kernel_end,
-                     PHYS_BASE, MEM_SIZE)
+    struct.pack_into("<8sII", out, 0, b"SWEETXNU", 1, len(pieces))
+    struct.pack_into(
+        "<7Q",
+        out,
+        0x10,
+        virt_base,
+        m["entry"],
+        adt_off,
+        len(adt_blob),
+        kernel_end,
+        PHYS_BASE,
+        MEM_SIZE,
+    )
     cl = cmdline.encode()
-    assert len(cl) < BOOT_LINE_LENGTH - 16, 'cmdline too long (the last 16 bytes hold the ramlog VAs)'
-    out[CMDLINE:CMDLINE + len(cl)] = cl
-    ring_va, total_va = kernel_symbols(kernel_path, '_sweet_log_ring', '_sweet_log_total')
-    struct.pack_into('<2Q', out, RAMLOG, ring_va, total_va)
+    assert len(cl) < BOOT_LINE_LENGTH - 16, (
+        "cmdline too long (the last 16 bytes hold the ramlog VAs)"
+    )
+    out[CMDLINE : CMDLINE + len(cl)] = cl
+    ring_va, total_va = kernel_symbols(
+        kernel_path, "_sweet_log_ring", "_sweet_log_total"
+    )
+    struct.pack_into("<2Q", out, RAMLOG, ring_va, total_va)
     for i, t in enumerate(seg_table):
-        struct.pack_into('<4Q', out, SEG_TABLE + 32 * i, *t)
-    info = dict(cputype=hex(m['cputype']), cpusub=m['cpusub'], fixups=nfix, virt_base=hex(virt_base),
-                entry=hex(m['entry']), kernel_end=hex(kernel_end), ramdisk=ramdisk, size=len(out),
-                segs=[(s['name'], hex(s['vmaddr']), hex(s['vmsize'])) for s in segs])
+        struct.pack_into("<4Q", out, SEG_TABLE + 32 * i, *t)
+    info = {
+        "cputype": hex(m["cputype"]),
+        "cpusub": m["cpusub"],
+        "fixups": nfix,
+        "virt_base": hex(virt_base),
+        "entry": hex(m["entry"]),
+        "kernel_end": hex(kernel_end),
+        "ramdisk": ramdisk,
+        "size": len(out),
+        "segs": [(s["name"], hex(s["vmaddr"]), hex(s["vmsize"])) for s in segs],
+    }
     return bytes(out), info
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument('kernel'); ap.add_argument('adt'); ap.add_argument('out')
-    ap.add_argument('--cmdline', default='debug=0xc serial=3 cpus=1 keepsyms=1')
-    ap.add_argument('--ramdisk', help='root image for md0 (boot with rd=md0)')
-    ap.add_argument('--poke', help='register script for bsd/dev/sweet_poke.c (/chosen/sweet-poke)')
-    ap.add_argument('--gpufw', help='Adreno firmware directory for bsd/dev/sweet_gpu.c (/chosen/gpufw,*)')
+    ap.add_argument("kernel")
+    ap.add_argument("adt")
+    ap.add_argument("out")
+    ap.add_argument("--cmdline", default="debug=0xc serial=3 cpus=1 keepsyms=1")
+    ap.add_argument("--ramdisk", help="root image for md0 (boot with rd=md0)")
+    ap.add_argument(
+        "--poke", help="register script for bsd/dev/sweet_poke.c (/chosen/sweet-poke)"
+    )
+    ap.add_argument(
+        "--gpufw",
+        help="Adreno firmware directory for bsd/dev/sweet_gpu.c (/chosen/gpufw,*)",
+    )
     a = ap.parse_args()
     blob, info = build(a.kernel, a.adt, a.cmdline, a.ramdisk, a.poke, a.gpufw)
-    open(a.out, 'wb').write(blob)
+    Path(a.out).write_bytes(blob)
     for k, v in info.items():
-        if k != 'segs':
-            print(f'{k}: {v}')
-    for s in info['segs']:
-        print('  ', *s)
+        if k != "segs":
+            print(f"{k}: {v}")
+    for s in info["segs"]:
+        print("  ", *s)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply the redfin daemon switches that tools/sweet-root-tweaks.py does not.
+"""Apply the redfin daemon switches that tools/redfin-root-tweaks.py does not.
 
   sudo prune-root.py MOUNTED_ROOT
 
@@ -14,7 +14,7 @@ What it does, and why (all from the port's own docs):
                  locationd's CLMescalSigner (FairPlay SAPInit) deadlocks its
                  main thread - which hangs every app making a synchronous
                  CoreLocation call. (bce31d1^:docs/redfin/disabled-services.md,
-                 tools-claude/quickwins-launchd.py --no-fairplayd)
+                 a804771:tools-claude/quickwins-launchd.py --no-fairplayd)
                  TRADE-OFF: no FairPlay, so DRM'd content (App Store purchases,
                  Apple Music/TV downloads) cannot work. It did not work with the
                  dead daemon either, but this is a deliberate choice.
@@ -33,7 +33,10 @@ Not done here (deliberately):
   - growing / to fill userdata: a separate, later step.
 """
 
-import os, plistlib, shutil, sys
+import os
+import plistlib
+import shutil
+import sys
 
 SUFFIX = ".before-prune"
 LAUNCHD_REL = os.path.join("System", "Library", "xpc", "launchd.plist")
@@ -109,7 +112,7 @@ def main(argv):
             )
             if hit:
                 why = REMOVE_LABELS.get(label) or REMOVE_LABELS.get(
-                    base[: -len(".plist")] if base.endswith(".plist") else base
+                    base.removesuffix(".plist")
                 )
                 print(f"  removed {sect}/{key}  ({why})")
                 del jobs[key]

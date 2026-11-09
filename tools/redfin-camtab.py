@@ -35,22 +35,27 @@ register (Sony: 0x020e, then 0x0210, 0x0212, 0x0214 for the four colours). Found
 (sensorDriverData as u64s): [43] maxAnalogGain, [44] maxDigitalGain (doubles), [47] verticalOffset, [75] the
 first black level (after [74], the white level 1023); the register in the symbol digitalGlobalGainAddr.
 """
+
 import struct
 import sys
+from pathlib import Path
 
 
 def load(path):
-    d = open(path, 'rb').read()
-    if not d.startswith(b'QTI Chromatix Header') or b'Parameter Parser V2.0.0' not in d[:0x60]:
-        sys.exit(f'{path}: not a V2 CamX module file')
-    toff, tsz = struct.unpack_from('<QQ', d, 0xa8)
-    doff, dsz = struct.unpack_from('<QQ', d, 0xc0)
+    d = Path(path).read_bytes()
+    if (
+        not d.startswith(b"QTI Chromatix Header")
+        or b"Parameter Parser V2.0.0" not in d[:0x60]
+    ):
+        sys.exit(f"{path}: not a V2 CamX module file")
+    toff, tsz = struct.unpack_from("<QQ", d, 0xA8)
+    doff, dsz = struct.unpack_from("<QQ", d, 0xC0)
     syms, order = {}, []
     for o in range(toff, toff + tsz, 0x48):
-        sid, name, kind, parent, off, size = struct.unpack_from('<Q32sQQQQ', d, o)
-        syms[sid] = (name.split(b'\0')[0].decode('latin1'), off, size)
+        sid, name, _kind, _parent, off, size = struct.unpack_from("<Q32sQQQQ", d, o)
+        syms[sid] = (name.split(b"\0")[0].decode("latin1"), off, size)
         order.append(sid)
-    return d[doff:doff + dsz], syms, order
+    return d[doff : doff + dsz], syms, order
 
 
 def main():
@@ -60,85 +65,141 @@ def main():
 
     def words(sid):
         _, off, size = syms[sid]
-        return struct.unpack_from('<%dQ' % (size // 8), data, off)
+        return struct.unpack_from(f"<{size // 8:d}Q", data, off)
 
     def regsetting(sid):
         out = []
         _, off, size = syms[sid]
         for e in range(off, off + size, 80):
-            _, _, addr, count, dsid, atype, dtype, op, has_delay, delay_sid = struct.unpack_from('<10Q', data, e)
-            vals = words(dsid)[:max(count, 1)] if dsid in syms else (0,)
-            delay = words(delay_sid)[0] if has_delay and delay_sid in syms and syms[delay_sid][2] >= 8 else 0
+            _, _, addr, count, dsid, atype, dtype, op, has_delay, delay_sid = (
+                struct.unpack_from("<10Q", data, e)
+            )
+            vals = words(dsid)[: max(count, 1)] if dsid in syms else (0,)
+            delay = (
+                words(delay_sid)[0]
+                if has_delay and delay_sid in syms and syms[delay_sid][2] >= 8
+                else 0
+            )
             for i, v in enumerate(vals):
                 # a burst (count > 1) writes the next addresses
-                out.append((addr + i * dtype, v, atype, dtype, op, delay if i == len(vals) - 1 else 0))
+                out.append(
+                    (
+                        addr + i * dtype,
+                        v,
+                        atype,
+                        dtype,
+                        op,
+                        delay if i == len(vals) - 1 else 0,
+                    )
+                )
         return out
 
     driver = words(1)
     slave = driver[5] >> 1
-    rsid = next(s for s in order if syms[s][0] == 'resolutionData')
+    rsid = next(s for s in order if syms[s][0] == "resolutionData")
     raw = words(rsid)
     modes, tables, mode_sids = [], [], set()
     for k in range(len(raw) // 37):
-        w = raw[37 * k:37 * k + 37]
-        fps = struct.unpack('<d', struct.pack('<Q', w[10]))[0]
+        w = raw[37 * k : 37 * k + 37]
+        fps = struct.unpack("<d", struct.pack("<Q", w[10]))[0]
         sc = words(w[2])[:8]
-        vc, dt, x, y, width, height = sc[:6]
-        modes.append([width, height, x, y, w[11], w[15], w[14], w[7], w[3], w[4], int(round(fps * 1000)), dt, w[0], 0])
+        _vc, dt, x, y, width, height = sc[:6]
+        modes.append(
+            [
+                width,
+                height,
+                x,
+                y,
+                w[11],
+                w[15],
+                w[14],
+                w[7],
+                w[3],
+                w[4],
+                round(fps * 1000),
+                dt,
+                w[0],
+                0,
+            ]
+        )
         mode_sids.add(w[19])
-        tables.append(('res%d' % k, regsetting(w[19])))
+        tables.append((f"res{int(k):d}", regsetting(w[19])))
         modes[-1][13] = len(tables) - 1
-    lane = next((s for s in order if syms[s][0] == 'laneAssign'), None)
-    lane_assign = words(lane)[0] & 0xffff if lane is not None and syms[lane][2] >= 8 else 0x3210
-    roles = {'regToRealGain': ['on', 'off', 'holdon', 'holdoff'], 'initSettings': ['init']}
-    after, used = '', {}
+    lane = next((s for s in order if syms[s][0] == "laneAssign"), None)
+    lane_assign = (
+        words(lane)[0] & 0xFFFF if lane is not None and syms[lane][2] >= 8 else 0x3210
+    )
+    roles = {
+        "regToRealGain": ["on", "off", "holdon", "holdoff"],
+        "initSettings": ["init"],
+    }
+    after, used = "", {}
     for sid in order:
         name = syms[sid][0]
-        if name != 'regSetting':
-            if name not in ('slaveAddr', 'registerData', 'delayUs', '[0]'):
+        if name != "regSetting":
+            if name not in ("slaveAddr", "registerData", "delayUs", "[0]"):
                 after = name
             continue
         if sid in mode_sids or syms[sid][2] == 0:
             continue
         n = used.get(after, 0)
         used[after] = n + 1
-        if after == 'testPatternData':
-            tables.append(('tpg%d' % n, regsetting(sid)))
+        if after == "testPatternData":
+            tables.append((f"tpg{int(n):d}", regsetting(sid)))
         elif n < len(roles.get(after, [])):
             tables.append((roles[after][n], regsetting(sid)))
         # (the EEPROM's and others' settings are not the sensor's)
 
     # the exposure facts (kernel 0931's "info" table)
-    dbl = lambda x: struct.unpack('<d', struct.pack('<Q', x))[0]
-    dw = struct.unpack_from('<80Q', data, 0)
-    dgr = next((s for s in order if syms[s][0] == 'digitalGlobalGainAddr' and syms[s][2] >= 8), None)
-    info = [(1, dw[47]), (2, dw[75]), (3, int(round(dbl(dw[43]) * 256))), (4, int(round(dbl(dw[44]) * 256)))]
+    dbl = lambda x: struct.unpack("<d", struct.pack("<Q", x))[0]
+    dw = struct.unpack_from("<80Q", data, 0)
+    dgr = next(
+        (s for s in order if syms[s][0] == "digitalGlobalGainAddr" and syms[s][2] >= 8),
+        None,
+    )
+    info = [
+        (1, dw[47]),
+        (2, dw[75]),
+        (3, round(dbl(dw[43]) * 256)),
+        (4, round(dbl(dw[44]) * 256)),
+    ]
     if dgr is not None:
         info.append((5, words(dgr)[0]))
-    if all(0 < v <= 0xffff for _, v in info) and dw[74] == 1023:
-        tables.append(('info', [(k, v, 2, 2, 0, 0) for k, v in info]))
+    if all(0 < v <= 0xFFFF for _, v in info) and dw[74] == 1023:
+        tables.append(("info", [(k, v, 2, 2, 0, 0) for k, v in info]))
     else:
-        print(f'  (no info table: driver data words {[hex(x) for x in (dw[43], dw[44], dw[47], dw[74], dw[75])]})')
+        print(
+            f"  (no info table: driver data words {[hex(x) for x in (dw[43], dw[44], dw[47], dw[74], dw[75])]})"
+        )
 
-    print(f'{sys.argv[1]}: slave {slave:#x}, lane assignment {lane_assign:#x}')
-    cfa = {0: 'BGGR', 1: 'GBRG', 2: 'GRBG', 3: 'RGGB', 4: 'mono'}
+    print(f"{sys.argv[1]}: slave {slave:#x}, lane assignment {lane_assign:#x}")
+    cfa = {0: "BGGR", 1: "GBRG", 2: "GRBG", 3: "RGGB", 4: "mono"}
     for k, m in enumerate(modes):
-        print(f'  mode {k}: {m[0]}x{m[1]} at {m[2]},{m[3]} dt {m[11]:#x}, {m[4]} {"trios" if m[5] else "lanes"}, settle {m[6]}, '
-              f'pixel clock {m[7]}, line {m[8]}, frame {m[9]}, {m[10] / 1000:.3f} fps, {cfa.get(m[12], m[12])}')
+        print(
+            f"  mode {k}: {m[0]}x{m[1]} at {m[2]},{m[3]} dt {m[11]:#x}, {m[4]} {'trios' if m[5] else 'lanes'}, settle {m[6]}, "
+            f"pixel clock {m[7]}, line {m[8]}, frame {m[9]}, {m[10] / 1000:.3f} fps, {cfa.get(m[12], m[12])}"
+        )
     for name, t in tables:
-        print(f'  {name}: {len(t)} writes: ' + ' '.join(f'{a:x}={v:x}' + (f'+{d}us' if d else '') for a, v, _, _, _, d in t[:8]) +
-              (' ...' if len(t) > 8 else ''))
-    if sys.argv[2] == '-':
+        print(
+            f"  {name}: {len(t)} writes: "
+            + " ".join(
+                f"{a:x}={v:x}" + (f"+{d}us" if d else "") for a, v, _, _, _, d in t[:8]
+            )
+            + (" ..." if len(t) > 8 else "")
+        )
+    if sys.argv[2] == "-":
         return
-    out = bytearray(b'RFCTAB01') + struct.pack('<4I', slave, lane_assign, len(modes), len(tables))
+    out = bytearray(b"RFCTAB01") + struct.pack(
+        "<4I", slave, lane_assign, len(modes), len(tables)
+    )
     for m in modes:
-        out += struct.pack('<14I', *m)
+        out += struct.pack("<14I", *m)
     for name, t in tables:
-        out += name.encode().ljust(8, b'\0')[:8] + struct.pack('<I', len(t))
+        out += name.encode().ljust(8, b"\0")[:8] + struct.pack("<I", len(t))
         for a, v, ab, db, op, dl in t:
-            out += struct.pack('<HHBBBBI', a, v, ab, db, op, 0, dl)
-    open(sys.argv[2], 'wb').write(out)
-    print(f'{sys.argv[2]}: {len(out)} bytes')
+            out += struct.pack("<HHBBBBI", a, v, ab, db, op, 0, dl)
+    Path(sys.argv[2]).write_bytes(out)
+    print(f"{sys.argv[2]}: {len(out)} bytes")
 
 
 main()

@@ -40,26 +40,47 @@ A register setting is 10 words { slave count, slave, register, data count, data,
 operation, delay count, delay } (types 1 byte, 2 word, 4 dword; operation 0 write, 3 read, 4 poll until equal,
 delay in us).
 """
+
 import struct
 import sys
+from pathlib import Path
 
-KIND = {0: 'MCLK', 1: 'VANA', 2: 'VDIG', 3: 'VIO', 4: 'VAF', 5: 'VAF_PWDM', 6: 'CUSTOM_REG1', 7: 'CUSTOM_REG2',
-        8: 'RESET', 9: 'STANDBY', 10: 'CUSTOM_GPIO1', 11: 'CUSTOM_GPIO2'}
-I2C = {0: 'standard 100 kHz', 1: 'fast 400 kHz', 2: 'custom', 3: 'fast plus 1 MHz'}
-OP = {0: 'write', 1: 'write burst', 2: 'write sequential', 3: 'read', 4: 'poll', 5: 'delay'}
+KIND = {
+    0: "MCLK",
+    1: "VANA",
+    2: "VDIG",
+    3: "VIO",
+    4: "VAF",
+    5: "VAF_PWDM",
+    6: "CUSTOM_REG1",
+    7: "CUSTOM_REG2",
+    8: "RESET",
+    9: "STANDBY",
+    10: "CUSTOM_GPIO1",
+    11: "CUSTOM_GPIO2",
+}
+I2C = {0: "standard 100 kHz", 1: "fast 400 kHz", 2: "custom", 3: "fast plus 1 MHz"}
+OP = {
+    0: "write",
+    1: "write burst",
+    2: "write sequential",
+    3: "read",
+    4: "poll",
+    5: "delay",
+}
 
 
 def load(path):
-    d = open(path, 'rb').read()
-    if not d.startswith(b'QTI Chromatix Header'):
-        sys.exit(f'{path}: not a CamX module file')
-    toff, tsz = struct.unpack_from('<QQ', d, 0xa8)
-    doff, dsz = struct.unpack_from('<QQ', d, 0xc0)
+    d = Path(path).read_bytes()
+    if not d.startswith(b"QTI Chromatix Header"):
+        sys.exit(f"{path}: not a CamX module file")
+    toff, tsz = struct.unpack_from("<QQ", d, 0xA8)
+    doff, dsz = struct.unpack_from("<QQ", d, 0xC0)
     syms = {}
     for o in range(toff, toff + tsz, 0x48):
-        sid, name, kind, parent, off, size = struct.unpack_from('<Q32sQQQQ', d, o)
-        syms[sid] = (name.split(b'\0')[0].decode('latin1'), kind, parent, off, size)
-    return d[doff:doff + dsz], syms
+        sid, name, kind, parent, off, size = struct.unpack_from("<Q32sQQQQ", d, o)
+        syms[sid] = (name.split(b"\0")[0].decode("latin1"), kind, parent, off, size)
+    return d[doff : doff + dsz], syms
 
 
 class Module:
@@ -68,24 +89,24 @@ class Module:
 
     def words(self, sid):
         _, _, _, off, size = self.syms[sid]
-        return struct.unpack_from('<%dQ' % (size // 8), self.data, off)
+        return struct.unpack_from(f"<{size // 8:d}Q", self.data, off)
 
     def top(self, name):
-        for sid, (n, kind, _, off, size) in self.syms.items():
+        for n, kind, _, off, size in self.syms.values():
             if n == name and kind == 1:
-                return struct.unpack_from('<%dQ' % (size // 8), self.data, off)
+                return struct.unpack_from(f"<{size // 8:d}Q", self.data, off)
         return None
 
     def string(self, count, sid):
         """a string element: the bytes themselves, or an array of one string"""
         if sid not in self.syms:
-            return ''
-        n, _, _, off, size = self.syms[sid]
-        raw = self.data[off:off + size]
-        c, inner = struct.unpack_from('<QQ', raw, 0) if size == 16 else (0, 0)
+            return ""
+        _n, _, _, off, size = self.syms[sid]
+        raw = self.data[off : off + size]
+        c, inner = struct.unpack_from("<QQ", raw, 0) if size == 16 else (0, 0)
         if size == 16 and 0 < c < 256 and inner in self.syms and inner != sid:
             return self.string(c, inner)
-        return raw.split(b'\0')[0].decode('latin1')
+        return raw.split(b"\0")[0].decode("latin1")
 
     def scalar(self, sid):
         if sid not in self.syms or self.syms[sid][4] < 8:
@@ -98,9 +119,15 @@ class Module:
             return out
         _, _, _, off, size = self.syms[sid]
         for e in range(off, off + min(size, 80 * count), 80):
-            ns, ssid, reg, nd, dsid, at, dt, op, ndl, dlsid = struct.unpack_from('<10Q', self.data, e)
+            ns, ssid, reg, nd, dsid, at, dt, op, ndl, dlsid = struct.unpack_from(
+                "<10Q", self.data, e
+            )
             slave = self.scalar(ssid) if ns else None
-            vals = self.words(dsid)[:max(nd, 1)] if nd and dsid in self.syms and self.syms[dsid][4] else (0,)
+            vals = (
+                self.words(dsid)[: max(nd, 1)]
+                if nd and dsid in self.syms and self.syms[dsid][4]
+                else (0,)
+            )
             delay = self.scalar(dlsid) if ndl else 0
             out.append((slave, reg, vals, at, dt, op, delay or 0))
         return out
@@ -108,85 +135,123 @@ class Module:
 
 def show_regs(m, label, count, sid, limit=40):
     rs = m.regsettings(count, sid)
-    print(f'  {label}: {len(rs)}')
+    print(f"  {label}: {len(rs)}")
     for slave, reg, vals, at, dt, op, delay in rs[:limit]:
-        v = ' '.join('%#x' % x for x in vals[:4]) + (' ...' if len(vals) > 4 else '')
-        print('     %s%-5s %#06x %s %-12s (%dB addr, %dB data)%s' % (
-            '' if slave is None else 'slave %#x ' % slave, OP.get(op, op), reg, '<-' if op != 3 else 'n=', v, at, dt,
-            f' then {delay} us' if delay else ''))
+        v = " ".join(f"{x:#x}" for x in vals[:4]) + (" ..." if len(vals) > 4 else "")
+        print(
+            "     {!s}{!s:<5} {:#06x} {!s} {!s:<12} ({:d}B addr, {:d}B data){!s}".format(
+                "" if slave is None else f"slave {slave:#x} ",
+                OP.get(op, op),
+                int(reg),
+                "<-" if op != 3 else "n=",
+                v,
+                int(at),
+                int(dt),
+                f" then {delay} us" if delay else "",
+            )
+        )
     if len(rs) > limit:
-        print(f'     ... {len(rs) - limit} more')
+        print(f"     ... {len(rs) - limit} more")
 
 
 def power(m, label, count, sid):
     if not count or sid not in m.syms:
-        print(f'  {label}: none')
+        print(f"  {label}: none")
         return
     w = m.words(sid)
     step = len(w) // count
-    print(f'  {label}: ' + ', '.join('%s %d +%d ms' % (KIND.get(w[i * step], w[i * step]), w[i * step + 1], w[i * step + 2])
-                                    for i in range(count)))
+    print(
+        f"  {label}: "
+        + ", ".join(
+            f"{KIND.get(w[i * step], w[i * step])!s} {int(w[i * step + 1]):d} +{int(w[i * step + 2]):d} ms"
+            for i in range(count)
+        )
+    )
 
 
 def sensor(m):
     data, syms = m.data, m.syms
-    w = struct.unpack_from('<17Q', data, 0)
-    print('slave 0x%02x (7-bit 0x%02x), address type %d, data type %d, id register 0x%04x = 0x%04x (mask %#x), '
-          'i2c mode %d' % (w[5], w[5] >> 1, w[7], w[8], w[9], w[10], w[11], w[12]))
-    for label, count, sid in (('power-up', w[13], w[14]), ('power-down', w[15], w[16])):
+    w = struct.unpack_from("<17Q", data, 0)
+    print(
+        f"slave 0x{int(w[5]):02x} (7-bit 0x{w[5] >> 1:02x}), address type {int(w[7]):d}, data type {int(w[8]):d}, id register 0x{int(w[9]):04x} = 0x{int(w[10]):04x} (mask {int(w[11]):#x}), i2c mode {int(w[12]):d}"
+    )
+    for label, count, sid in (("power-up", w[13], w[14]), ("power-down", w[15], w[16])):
         _, _, _, off, size = syms[sid]
         print(label)
         step = size // count
         for i in range(count):
-            v = struct.unpack_from('<%dI' % (step // 4), data, off + i * step)
-            print('   %-12s value %-9d delay %d ms' % (KIND.get(v[0], v[0]), v[2], v[4]))
+            v = struct.unpack_from(f"<{step // 4:d}I", data, off + i * step)
+            print(
+                f"   {KIND.get(v[0], v[0])!s:<12} value {int(v[2]):<9d} delay {int(v[4]):d} ms"
+            )
 
 
 def module_config(m):
-    cm = m.top('cameraModuleData')
+    cm = m.top("cameraModuleData")
     if not cm or len(cm) < 5:
         return
     mc = m.words(cm[4])
-    names = ['moduleName', 'sensorName', 'sensorSlaveAddress', 'sensorI2CFrequencyMode', 'actuatorName', 'oisName',
-             'eepromName', 'eepromSlaveAddress', 'flashName', 'Name', 'i2cFrequencyMode']
-    print('module configuration:')
+    names = [
+        "moduleName",
+        "sensorName",
+        "sensorSlaveAddress",
+        "sensorI2CFrequencyMode",
+        "actuatorName",
+        "oisName",
+        "eepromName",
+        "eepromSlaveAddress",
+        "flashName",
+        "Name",
+        "i2cFrequencyMode",
+    ]
+    print("module configuration:")
     for k, name in enumerate(names):
         i = 1 + 2 * k
         if i + 1 >= len(mc):
             break
         count, sid = mc[i], mc[i + 1]
         if not count:
-            print(f'  {name}: -')
-        elif name.endswith('Name') or name == 'Name':
-            print(f'  {name}: {m.string(count, sid)}')
+            print(f"  {name}: -")
+        elif name.endswith("Name") or name == "Name":
+            print(f"  {name}: {m.string(count, sid)}")
         else:
-            print(f'  {name}: {m.scalar(sid)}')
+            print(f"  {name}: {m.scalar(sid)}")
 
 
 def actuator(m):
-    a = m.top('actuatorDriver')
+    a = m.top("actuatorDriver")
     if not a:
-        print('actuator: none')
+        print("actuator: none")
         return
-    print('actuator %s: slave %#x (7-bit %#x), I2C %s, type %d, %d-bit positions' % (
-        m.string(a[3], a[4]) if a[3] else '?', a[7], a[7] >> 1, I2C.get(a[8], a[8]), a[9], a[10]))
-    power(m, 'power-up', a[11], a[12])
-    power(m, 'power-down', a[13], a[14])
+    print(
+        "actuator {!s}: slave {:#x} (7-bit {:#x}), I2C {!s}, type {:d}, {:d}-bit positions".format(
+            m.string(a[3], a[4]) if a[3] else "?",
+            int(a[7]),
+            a[7] >> 1,
+            I2C.get(a[8], a[8]),
+            int(a[9]),
+            int(a[10]),
+        )
+    )
+    power(m, "power-up", a[11], a[12])
+    power(m, "power-down", a[13], a[14])
     if a[15]:
         for k in range(a[15]):
-            p = m.words(a[16])[9 * k:9 * k + 9]
-            print('  position write: register %#06x (%dB address, %dB data) <- %#x | ((code << %d) & %#x), operation %d, '
-                  'hw shift %d, delay %d us' % (p[2], p[0], p[1], p[3], p[7], p[6], p[4], p[5], p[8]))
-    show_regs(m, 'init settings', a[17], a[18])
-    show_regs(m, 'deinit settings', a[19], a[20])
-    print(f'  initial code {a[21]}')
+            p = m.words(a[16])[9 * k : 9 * k + 9]
+            print(
+                f"  position write: register {int(p[2]):#06x} ({int(p[0]):d}B address, {int(p[1]):d}B data) <- {int(p[3]):#x} | ((code << {int(p[7]):d}) & {int(p[6]):#x}), operation {int(p[4]):d}, hw shift {int(p[5]):d}, delay {int(p[8]):d} us"
+            )
+    show_regs(m, "init settings", a[17], a[18])
+    show_regs(m, "deinit settings", a[19], a[20])
+    print(f"  initial code {a[21]}")
     i = 22
     if a[i]:
         for k in range(a[i]):
-            r = m.words(a[i + 1])[4 * k:4 * k + 4]
-            cps = struct.unpack('<f', struct.pack('<I', r[2] & 0xffffffff))[0]
-            print('  region %d: macro step boundary %d, infinity step boundary %d, code per step %g, q value %d' % (
-                k, r[0], r[1], cps, r[3]))
+            r = m.words(a[i + 1])[4 * k : 4 * k + 4]
+            cps = struct.unpack("<f", struct.pack("<I", r[2] & 0xFFFFFFFF))[0]
+            print(
+                f"  region {int(k):d}: macro step boundary {int(r[0]):d}, infinity step boundary {int(r[1]):d}, code per step {cps:g}, q value {int(r[3]):d}"
+            )
     i += 2
     n = 0
     while i + 2 < len(a):
@@ -194,21 +259,28 @@ def actuator(m):
         if count and sid in m.syms:
             for c, s in zip(m.words(sid)[0::2], m.words(sid)[1::2]):
                 r = m.words(s) if s in m.syms else ()
-                print('  ringing scenario %d (%d steps): step boundary %d, damping step %d, damping delay/param %#x' % (
-                    n, steps, *(r[:3] if len(r) >= 3 else (0, 0, 0))))
+                print(
+                    "  ringing scenario {:d} ({:d} steps): step boundary {:d}, damping step {:d}, "
+                    "damping delay/param {:#x}".format(
+                        n, steps, *(r[:3] if len(r) >= 3 else (0, 0, 0))
+                    )
+                )
         n += 1
         i += 3
 
 
 def ois(m):
-    o = m.top('OISDriver')
+    o = m.top("OISDriver")
     if not o:
-        print('OIS: none')
+        print("OIS: none")
         return
-    print('OIS %s: slave %#x (7-bit %#x), I2C %s' % (m.string(o[3], o[4]) if o[3] else '?', o[5], o[5] >> 1,
-                                                    I2C.get(o[6], o[6])))
-    power(m, 'power-up', o[9], o[10])
-    power(m, 'power-down', o[11], o[12])
+    print(
+        "OIS {}: slave {:#x} (7-bit {:#x}), I2C {}".format(
+            m.string(o[3], o[4]) if o[3] else "?", o[5], o[5] >> 1, I2C.get(o[6], o[6])
+        )
+    )
+    power(m, "power-up", o[9], o[10])
+    power(m, "power-down", o[11], o[12])
     # the setting lists that follow: (count, symbol) pairs; a named wrapper holds (count, regSetting)
     unnamed = 0
     for i in range(13, len(o) - 1, 2):
@@ -216,47 +288,54 @@ def ois(m):
         if sid not in m.syms:
             continue
         name = m.syms[sid][0]
-        if name == 'regSetting':
-            show_regs(m, f'setting list {unnamed} (init/calibration/enable/disable, in the XSD order)', count, sid)
+        if name == "regSetting":
+            show_regs(
+                m,
+                f"setting list {unnamed} (init/calibration/enable/disable, in the XSD order)",
+                count,
+                sid,
+            )
             unnamed += 1
         elif count:
             inner = m.words(sid)
             show_regs(m, name, inner[0], inner[1])
         else:
-            print(f'  {name}: none')
+            print(f"  {name}: none")
 
 
 def eeprom(m):
-    e = m.top('EEPROMDriverData')
+    e = m.top("EEPROMDriverData")
     if not e:
-        print('EEPROM: none')
+        print("EEPROM: none")
         return
-    name = m.string(e[3], e[4]) if e[3] else '?'
-    print(f'EEPROM {name}:')
+    name = m.string(e[3], e[4]) if e[3] else "?"
+    print(f"EEPROM {name}:")
     for i in range(5, len(e) - 1, 2):
         count, sid = e[i], e[i + 1]
         if sid not in m.syms or not count:
             continue
         n = m.syms[sid][0]
-        if n == 'powerSetting':
-            power(m, 'power', count, sid)
-        elif n == 'regSetting':
+        if n == "powerSetting":
+            power(m, "power", count, sid)
+        elif n == "regSetting":
             rs = m.regsettings(count, sid)
             reads = [r for r in rs if r[5] == 3]
             total = sum(r[2][0] for r in reads)
-            print(f'  memory map: {len(rs)} settings, {len(reads)} reads, {total} bytes')
-            show_regs(m, 'first settings', count, sid, limit=6)
+            print(
+                f"  memory map: {len(rs)} settings, {len(reads)} reads, {total} bytes"
+            )
+            show_regs(m, "first settings", count, sid, limit=6)
 
 
 def flash(m):
-    f = m.top('flashDriverData')
+    f = m.top("flashDriverData")
     if f and f[3]:
-        print(f'flash: {m.string(f[3], f[4])}')
+        print(f"flash: {m.string(f[3], f[4])}")
 
 
 def main():
     args = sys.argv[1:]
-    full = args[:1] == ['-a']
+    full = args[:1] == ["-a"]
     if full:
         args = args[1:]
     if len(args) != 1:
@@ -271,5 +350,5 @@ def main():
         flash(m)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

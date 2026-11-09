@@ -183,7 +183,7 @@ index 0000000..b34fa8b
 + *
 + * Boot-arg sweetcam=1: a look only (clocks, GDSC, pins, the PMIC GPIOs, the SLG51000 if it answers).
 + * sweetcam=2: and the probe on request: poke/command line "c N" (N = 0, 1, 2; 9 = the look again),
-+ * tools/flame-cmd.py 'c 0'; 10 = the PMIC GPIOs, 11 = the SLG51000's ID register, 12 = camcc's
++ * tools/redfin-cmd.py 'c 0'; 10 = the PMIC GPIOs, 11 = the SLG51000's ID register, 12 = camcc's
 + * clocks (after the camera XO clock is switched on). sweetcam=3: and all three probed once at boot.
 + * Any write that does not read back, a rail that does not come up or reports over-current, a byte
 + * nobody acknowledges on the PMIC's bus, and everything switched on so far is switched off again in

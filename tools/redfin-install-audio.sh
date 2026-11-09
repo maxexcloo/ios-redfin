@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 DIR=${1:-phone/audio/out}
 D=$DIR/RedwoodAudio.driver
 [ -f "$D/RedwoodAudio" ] && [ -f "$D/Info.plist" ] || { echo "no $D/RedwoodAudio + Info.plist"; exit 1; }
-F="python3 -I tools/flame-files.py"
+F="python3 -I tools/redfin-files.py"
 H=/System/Library/Audio/Plug-Ins/HAL
 $F mkdir /System/Library/Audio 755 || true
 $F mkdir /System/Library/Audio/Plug-Ins 755 || true

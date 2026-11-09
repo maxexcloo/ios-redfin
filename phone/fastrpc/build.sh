@@ -7,7 +7,8 @@ mkdir -p out
 SRC="fastrpcd.c transport.c apps_std.c apps_mem.c listener.c localctl.c iobuffer.c hexagonrpc.c handle.c error.c
 	remotectl.c log.c interface/adsp_default_listener.c interface/adsp_listener.c interface/apps_mem.c
 	interface/apps_std.c"
-${IOS_CC:-../../work/userland/bin/ios-cc} -O2 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers \
+# shellcheck disable=SC2086 # SRC is a list of files
+${IOS_CC:-../../tools/ios-cc} -O2 -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers \
 	-I. -Icompat -o out/fastrpcd $SRC -lpthread
 codesign -f -s - out/fastrpcd 2>/dev/null || true
 ls -la out/fastrpcd

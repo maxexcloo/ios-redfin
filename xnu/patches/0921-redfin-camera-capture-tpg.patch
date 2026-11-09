@@ -54,7 +54,7 @@ diff --git a/bsd/dev/sweet_cam.c b/bsd/dev/sweet_cam.c
 + *   SMMU     the apps SMMU (0x15000000) sends the IFEs' streams (live DT msm_cam_smmu_ife: 0x820..0xd40, mask
 + *            0x5e0: one match register 0x800/0x5e0 takes them all) to a context bank with translation off, as
 + *            phone/wifi/radio.c does for the WLAN: the IFE's addresses are physical
-+ * The frames stay in the pool after the run; tools/flame-files.py read /dev/pmem PA LEN fetches them
++ * The frames stay in the pool after the run; tools/redfin-files.py read /dev/pmem PA LEN fetches them
 + * (tools/redfin-camraw.py makes a picture). Everything else is taken back in the reverse order.
 + */
 +extern vm_offset_t ml_io_map_unmappable(vm_offset_t phys_addr, vm_size_t size, unsigned int flags);
