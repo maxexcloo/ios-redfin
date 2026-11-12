@@ -1783,7 +1783,7 @@ static void x1_lost(void)
 }
 
 /* is the call still needed?  x1hold=1 asks for it; with ipadata=1 only while the data path runs
- * (a failed or stopped setup releases the call, as README.ipagsi.md says); without ipadata=1,
+ * (a failed or stopped setup releases the call, as upstream's README.ipagsi.md says); without ipadata=1,
  * x1hold=1 alone keeps it until cell.on changes */
 static int x1_held(void)
 {

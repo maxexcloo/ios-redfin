@@ -4,7 +4,7 @@
  * ipagsi.c: the AP side of the IPA v4.7 data path (redfin / lito), polled from wland's idle loop over /dev/pmem:
  * GSI channels 5 (AP_COMMAND_TX, endpoint 7), 2 (AP_MODEM_TX, endpoint 2) and 7 (AP_MODEM_RX, endpoint 16),
  * QMAP framing, and a utun carrying the IP packets.  The IPA table/header init by immediate commands on
- * channel 5 is the part still missing (see README.ipagsi.md).  Only with ipadata=1 in cell.on, started by
+ * channel 5 is the part still missing (see upstream's README.ipagsi.md, linked from ipagsi.c).  Only with ipadata=1 in cell.on, started by
  * cell.c once X1's Start Network + Get Current Settings succeeded.
  */
 #include <stddef.h>
