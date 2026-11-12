@@ -1,8 +1,8 @@
 /*
  * ipagsi.c - the AP side of the IPA v4.7 / GSI v4.5 data path on redfin (Pixel 5), driven from
- * wland.c's net_idle() over /dev/pmem.  See ipagsi.h for the interface, and README.ipagsi.md (the
- * file next to ipagsi.diff, one level up from this directory) for how to run it and for what is
- * verified and what is still open.
+ * wland.c's net_idle() over /dev/pmem.  See ipagsi.h for the interface, and upstream's
+ * https://github.com/DenialOfGravity/ios-redfin/blob/19073fc/phone/wifi/README.ipagsi.md
+ * for how to run it and for what is verified and what is still open.
  *
  * All GSI register offsets, fields and commands below are taken from mainline Linux
  * drivers/net/ipa/reg/gsi_reg-v4.5.c and drivers/net/ipa/gsi.c (5.15 and 6.7 both checked); they
@@ -819,7 +819,7 @@ static int ipagsi_endpoints(void)
 			 * plus a pulse-generator selector, and the byte limit's units depend on
 			 * AGGR_GRAN_SEL; neither is worked out here, so only the byte/packet/eof
 			 * fields below are what the SET_AGGR knob would touch, and they are there
-			 * to be read, not written (see the open items in README.ipagsi.md). */
+			 * to be read, not written (see the open items in upstream's README.ipagsi.md). */
 			if (ag & EP_AGGR_EN_MASK) {
 				unsigned bytes = (ag >> EP_AGGR_BYTE_SHIFT) & 0x3f;
 
@@ -865,7 +865,7 @@ static int ipagsi_endpoints(void)
  * ipa47_mem[] describes, so header/system/filter/route init means copying them to DDR and driving
  * channel 5 with immediate commands (that is what ipacmd=1 would be for).  Not implemented - the
  * modem's own INIT_MODEM_DRIVER setup already left those tables in place, so this only logs, and
- * channel 5 and event ring 0 stay allocated but unused.  See open item 4 in README.ipagsi.md. */
+ * channel 5 and event ring 0 stay allocated but unused.  See open item 4 in upstream's README.ipagsi.md. */
 static void __attribute__((unused)) ipagsi_tables(void)
 {
 	if (!ctx.tables)
