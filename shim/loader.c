@@ -1,5 +1,5 @@
 /*
- * Milestone 4: act as iBoot for xnu.
+ * Act as iBoot for xnu.
  *
  * mkpayload.py already resolved the kernel's chained fixups and built the
  * ADT, so this only has to: find the payload in the ABL ramdisk (after the

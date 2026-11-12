@@ -1,5 +1,5 @@
 /*
- * Milestone 3: EL1 stage-1 MMU with the 16K granule XNU uses.
+ * EL1 stage-1 MMU with the 16K granule XNU uses.
  *
  * T0SZ=28 gives a 36-bit VA whose walk starts at level 2: one 16K table of
  * 2048 x 32MB blocks covers 64GB, identity mapped (VA == PA).

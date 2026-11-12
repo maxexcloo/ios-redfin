@@ -27,13 +27,11 @@ mise run check
 mise run build -- "$PWD/work/boot/working.payload" "$PWD/out/redfin.img"
 ```
 
-Checks run the shared linters, host tests, pd-mapper QMI tests (host C compiler with AddressSanitizer and UndefinedBehaviorSanitizer) and patch structure checks. The build packs the native shim into a boot-v3 image with an LZ4 Image and an unsigned AVB footer padded to 96 MiB. Neither task accesses a phone.
-
 `xnu/patches/` applies to XNU `8796.141.3` through blacktop/darwin-xnu-build. Phone tools and Metal need Xcode's iOS SDK through `tools/ios-cc`. The XNU, Metal2, Userland and Shim workflows run on `main` pushes and manual dispatches (`gh workflow run xnu.yaml --ref main`) and upload Actions artefacts; match an artefact's run revision to the intended source. A fresh clone must build or download its kernel.
 
 ## Device Workflow
 
-The unlocked Google bootloader temporarily loads the shim with `fastboot boot`; XNU mounts an HFS+ root on `userdata`, and bootloader and firmware partitions stay intact. `sudo bash tools/build-root-mac.sh 32g` overwrites `work/rootimg/iosroot.img`, copies both cryptexes with numeric ownership, links the shared cache, applies the root tweaks and prunes the known FairPlay/voicemail crash loops. Later plug-ins and userland additions are not included in that CPU root.
+The unlocked Google bootloader temporarily loads the shim with `fastboot boot`; XNU mounts an HFS+ root on `userdata`, and bootloader and firmware partitions stay intact. `sudo bash tools/build-root-mac.sh 32g` overwrites `work/rootimg/iosroot.img` with the CPU root; later plug-ins and userland additions are installed separately.
 
 Installing the root is a separately approved data-erasing step: temporarily boot `recovery/twrp.img`, then run `bash tools/redfin-install-root.sh write`, which verifies every GiB; `bash tools/redfin-install-root.sh verify` only checks an existing installation. Keep the last 17 MiB of `userdata` outside the filesystem for logs.
 
@@ -52,13 +50,13 @@ redfin_args=(flamecpufreq=2 sweetgov=4060 sweetsurfkeep=1 sweetvsyncphase=0)
 PRESET=ui bash tools/redfin-boot.sh working "$redfin_kernel" "${redfin_args[@]}"
 ```
 
-The helper refuses multiple fastboot devices or another product. The default profile renders on the CPU; `PRESET=ui` enables Metal, double buffering, direct scanout, panel brightness and haptics through the installed `SweetHaptics.dylib`. Neither profile advertises the camera or flash. Arguments and outputs stay in `work/boot/NAME.{adt,cmdline,payload,img}`; preserve working images while comparing changes.
+The default profile renders on the CPU; `PRESET=ui` adds Metal, direct scanout, brightness and haptics (needs the installed `SweetHaptics.dylib`). Arguments and outputs stay in `work/boot/NAME.{adt,cmdline,payload,img}`; preserve working images while comparing changes.
 
 **Invalidate MobileGestalt's CacheVersion when changing ADT capabilities.** Stale camera/flash answers block SpringBoard in `AVFlashlight` initialisation. The root tweaks invalidate the cache; an installed phone needs the same change, with a backup, before rebooting. The camera preset requires firmware/tables, RedwoodAudio and MediaToolbox's D22/D221/Default `StartRecorderServer=true` with its prewarm hook; the CPU root disables that server.
 
 USB Ethernet uses host `192.168.7.1/24`, phone `192.168.7.2`, UDP 5140 logs, UDP 5141 commands and TCP 2223 files; configure the interface belonging to this Pixel after enumeration. For example, `python tools/redfin-cmd.py 'p disp' --all` queries display state, and `p scanout`, `p swapdone` and `p fc` query frame delivery and panel timing. `tools/redfin-live.py` records the live log and `tools/redfin-files.py` moves files.
 
-Count `SCANOUT latched` frames in direct mode; `FB shown=0` alone does not mean rendering stopped. Compare identical gestures and phase markers, screenshots, thermal state and `/var/local/mtl2.log` timelines; `tools/fps-parse.py` parses the counters and `tools/fb-shot.py` interprets framebuffer geometry. Keep thermal protection enabled. Replace loaded dylibs by staging a new file and renaming it; in-place writes can retain stale code-signature state.
+Count `SCANOUT latched` frames in direct mode; `FB shown=0` alone does not mean rendering stopped. `tools/fps-parse.py` parses the counters and `tools/fb-shot.py` interprets framebuffer geometry. Replace loaded dylibs by staging a new file and renaming it; in-place writes can retain stale code-signature state.
 
 **Recovery:** keep the matching Android 14 `UP1A.231105.001.B2` archive, `downloads/redfin-up1a.231105.001.b2-factory-4e5a2679.zip`, and verified per-device persist/modemst/fsg backups, and verify the archive's SHA-256 against [Google's redfin factory-image entry](https://developers.google.com/android/images#redfin). Stock recovery has not been exercised on this phone. Enter the bootloader with **Power + Volume Down** and confirm `product: redfin` with `fastboot -s SERIAL getvar product`. A separately approved factory restore follows the archive's `flash-all` instructions, writes stock firmware and erases userdata; retain needed iOS files first, keep the cable connected, then verify Android reaches **Welcome to Pixel** and check its build, charging and normal boot. Google's [full OTA packages](https://developers.google.com/android/ota#redfin) reinstall stock firmware without unlocking or wiping but do not restore the Android data filesystem replaced by HFS+; reinitialising userdata erases data. Never substitute another device's calibration dumps, never relock until an unmodified stock system boots and development has ended, and identify the actual boot state before firmware writes if fastboot is unavailable.
 
