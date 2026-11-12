@@ -114,9 +114,7 @@ jobs:
           set -o pipefail
           bash build.sh 2>&1 | tee "$RUNNER_TEMP/build.log"
       # Runs on the cached path and the full one, after the source is patched either way.
-      # build.sh's patches() only warns, so a malformed or conflicting patch used to leave a
-      # green build whose kernel silently lacked it: 1047 shipped as "corrupt patch at :40".
-      # Every xnu/patches/*.patch must be reported "Applying patch"; a miss is a build failure.
+      # build.sh's patches() only warns, so require "Applying patch" for every xnu/patches/*.patch.
       # (blacktop's own optional patches in dxb/patches are not checked: they may legitimately
       # not apply to this macOS.)
       - name: Verify Every Patch Applied
