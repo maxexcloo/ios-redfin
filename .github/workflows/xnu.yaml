@@ -125,16 +125,11 @@ jobs:
           # Cold builds apply patches during Build; cached builds use the prep log.
           [ -s "$log" ] || log=$RUNNER_TEMP/build.log
           [ -s "$log" ] || { echo "::error::No patch application log"; exit 1; }
-          # A patch that is merely redundant (its files are already there from an earlier
-          # patch) is harmless; a corrupt or conflicting one is not, and must never pass.
-          # 0160 re-adds the DriverKit headers 0030 and friends already provide.
-          redundant='0160-sunfish-iomfb-log-async.patch'
           applied=$(grep -oE "Applying patch: .*/[^/]+\.patch" "$log" | sed 's|.*/||' | sort -u)
           bad=0
           for p in "$GITHUB_WORKSPACE"/xnu/patches/*.patch; do
             b=$(basename "$p")
             grep -Fxq "$b" <<< "$applied" && continue
-            case " $redundant " in *" $b "*) echo "redundant (files already present): $b"; continue;; esac
             echo "::error file=xnu/patches/$b::not applied (see 'Skipping patch' in the log)"
             grep -A4 "Skipping patch .*/$b" "$log" | head -5 || true
             bad=$((bad + 1))
