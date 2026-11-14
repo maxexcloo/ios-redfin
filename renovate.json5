@@ -1,4 +1,15 @@
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   extends: ["github>maxexcloo/dotfiles//renovate/default.json5"],
+  packageRules: [
+    {
+      description: "PR checks never apply the patch stacks on these pins; build a bump with workflow_dispatch before merging",
+      matchDepNames: [
+        "https://github.com/blacktop/darwin-xnu-build",
+        "https://github.com/UniXNU/UniXNU",
+        "https://gitlab.freedesktop.org/mesa/mesa",
+      ],
+      automerge: false,
+    },
+  ],
 }
