@@ -14,6 +14,9 @@
 #                                   in userdata), hold the log on screen for 60 s, then reset
 # Needs llvm + lld + lz4 + mkbootimg (AOSP) + avbtool. No stock DTB is needed (v3).
 set -euo pipefail
+PAYLOAD=${1:-} OUT=${2:-}
+[[ -z $PAYLOAD || $PAYLOAD == /* ]] || PAYLOAD=$PWD/$PAYLOAD
+[[ -z $OUT || $OUT == /* ]] || OUT=$PWD/$OUT
 cd "$(dirname "$0")"
 ROOT=$(cd .. && pwd)
 if [ -d /opt/homebrew/opt/llvm/bin ]; then
@@ -49,8 +52,8 @@ truncate -s "$((16#$size))" out/Image
 # Google's ABL only takes compressed kernels (stock and TWRP are LZ4 frames);
 # an uncompressed Image is "Unsupported".
 lz4 -q -9 -B7 -f out/Image out/Image.lz4
-if [ -n "${1:-}" ]; then
-	cp "$1" out/ramdisk.bin
+if [ -n "$PAYLOAD" ]; then
+	cp "$PAYLOAD" out/ramdisk.bin
 else
 	# ABL dislikes a zero-size ramdisk on some builds: an empty newc cpio.
 	# (Python fallback where cpio is missing, e.g. Git Bash on Windows: same bytes, a
@@ -71,7 +74,7 @@ open(sys.argv[1], 'wb').write(gzip.compress(data, 9))
 PY
 	fi
 fi
-OUT=${2:-out/shim-boot.img}
+OUT=${OUT:-out/shim-boot.img}
 MKBOOTIMG=${MKBOOTIMG:-$(command -v mkbootimg || echo "python3 $ROOT/downloads/mkbootimg/mkbootimg.py")}
 $MKBOOTIMG \
 	--header_version 3 --kernel out/Image.lz4 --ramdisk out/ramdisk.bin \

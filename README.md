@@ -24,7 +24,7 @@ Mise provides Python. The shim build needs LLVM (`clang`, `ld.lld`, `llvm-objcop
 
 ```sh
 mise run check
-mise run build -- "$PWD/work/boot/working.payload" "$PWD/out/redfin.img"
+mise run build -- work/boot/working.payload out/redfin.img
 ```
 
 `xnu/patches/` applies to XNU `8796.141.3` through blacktop/darwin-xnu-build. Phone tools and Metal need Xcode's iOS SDK through `tools/ios-cc`. The XNU, Metal2, Userland and Shim workflows run on `main` pushes and manual dispatches (`gh workflow run xnu.yaml --ref main`) and upload Actions artefacts; match an artefact's run revision to the intended source. A fresh clone must build or download its kernel.
