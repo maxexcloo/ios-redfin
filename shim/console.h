@@ -24,5 +24,3 @@ void con_home(void);
 int con_rows(void);
 unsigned con_text(const char *s, unsigned len, uint32_t fg);
 void con_str(const char *label, const char *s);
-void con_hex(const char *label, uint64_t v);
-void con_hex2(const char *label, const char *a, uint32_t va, const char *b, uint32_t vb);

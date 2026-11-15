@@ -7,7 +7,15 @@ name: Metal2
 on:
   push:
     branches: [main]
-    paths: [.github/workflows/metal2.yaml, "phone/metal2/**", "phone/turnip/**", tools/ios-cc]
+    paths:
+      [
+        .github/workflows/metal2.yaml,
+        "phone/metal2/**",
+        "phone/turnip/**",
+        tools/build-m2v-bridge.sh,
+        tools/build-turnip-ios.sh,
+        tools/ios-cc,
+      ]
   workflow_dispatch:
 
 permissions:
@@ -18,7 +26,8 @@ env:
   MESA_COMMIT: 85fda3b36405bcaea8bffc64aa4f2651dc90770d
   # renovate: datasource=git-refs depName=https://github.com/UniXNU/UniXNU
   UNIXNU_COMMIT: e95b37d97875bd8b30c976fcdef44d35d9c27bf3
-  M2V_COMMIT: 720ef1ce
+  # renovate: datasource=git-refs depName=https://github.com/steelbrain/metal2vulkan
+  M2V_COMMIT: 720ef1ce9ae2a2068999a8675717418b9416283e
 
 concurrency:
   cancel-in-progress: true
@@ -37,7 +46,7 @@ jobs:
           brew install meson ninja bison flex glslang llvm >/dev/null
           python3 -m venv work/turnip/venv
           work/turnip/venv/bin/pip install -q meson mako pyyaml packaging
-          rustup toolchain install 1.98.0 --profile minimal --target aarch64-apple-ios
+          rustup toolchain install "$(sh tools/build-m2v-bridge.sh --rust-version)" --profile minimal --target aarch64-apple-ios
       - name: Fetch Mesa Source
         run: |
           git clone -q --filter=blob:none --no-checkout https://gitlab.freedesktop.org/mesa/mesa.git work/turnip/mesa
@@ -64,8 +73,8 @@ jobs:
       - name: Build Turnip Tests
         run: |
           sh phone/turnip/build.sh
-          tools/ios-cc -x c++ -std=c++17 -O2 -I phone/turnip -o phone/turnip/out/v2test phone/turnip/v2test.cpp -lc++ -framework IOKit -framework CoreFoundation || true
-          codesign -f -s - phone/turnip/out/v2test 2>/dev/null || true
+          tools/ios-cc -x c++ -std=c++17 -O2 -I phone/turnip -o phone/turnip/out/v2test phone/turnip/v2test.cpp -lc++ -framework IOKit -framework CoreFoundation
+          codesign -f -s - phone/turnip/out/v2test 2>/dev/null
       - uses: actions/upload-artifact@v7
         if: always()
         with:

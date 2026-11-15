@@ -34,6 +34,7 @@ build netsvc netsvc.m -fobjc-arc -framework Foundation -framework SystemConfigur
 build memwarn memwarn.c
 build pmem pmem.c
 build a2s a2s.c
+# LZ4 stays vendored because sweetmon needs an iOS build with no packaged library available.
 build sweetmon sweetmon.c lz4/lz4.c -DSWEETMON_VERSION="\"$(git rev-parse --short HEAD 2>/dev/null || date +%F)\""
 build imgdump imgdump.c -lobjc
 ls -l out

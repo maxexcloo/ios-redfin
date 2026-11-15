@@ -42,6 +42,13 @@ p['LaunchDaemons']['/System/Library/LaunchDaemons/org.iosonpixel.dropbear.plist'
 plistlib.dump(p, open(sys.argv[2], 'wb'), fmt=plistlib.FMT_BINARY)
 print('launchd jobs:', len(p['LaunchDaemons']))
 PY
-$F put $U/launchd.plist.orig /System/Library/xpc/launchd.plist.orig 644 2>/dev/null || true
+if backup=$($F get /System/Library/xpc/launchd.plist.orig $U/launchd.plist.orig 2>&1); then
+	: # Keep the phone's original backup on subsequent installs.
+elif [[ $backup == "phone: ERR 2" ]]; then
+	$F put $U/launchd.plist.cur /System/Library/xpc/launchd.plist.orig 644
+else
+	printf '%s\n' "$backup" >&2
+	exit 1
+fi
 $F put $U/launchd.plist.new /System/Library/xpc/launchd.plist 644
 echo "installed; reboot the phone (tools/redfin-cmd.py reboot) and boot again for launchd to start dropbear"
