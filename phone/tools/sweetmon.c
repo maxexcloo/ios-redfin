@@ -648,7 +648,7 @@ static int cpu_ticks(uint32_t (*t)[4], int max)
 }
 
 struct vmst { uint64_t free, active, inactive, wired, compressed, spec, pageins, swapins, faults; uint32_t page_kb; };
-static int vm_stats(struct vmst *v)
+static int vm_sample(struct vmst *v)
 {
 	vm_statistics64_data_t s;
 	mach_msg_type_number_t c = HOST_VM_INFO64_COUNT;
@@ -804,7 +804,7 @@ static int cpu_ticks(uint32_t (*t)[4], int max)
 	return max < 8 ? max : 8;
 }
 struct vmst { uint64_t free, active, inactive, wired, compressed, spec, pageins, swapins, faults; uint32_t page_kb; };
-static int vm_stats(struct vmst *v) { memset(v, 0, sizeof(*v)); v->page_kb = 16; return 0; }
+static int vm_sample(struct vmst *v) { memset(v, 0, sizeof(*v)); v->page_kb = 16; return 0; }
 static uint64_t self_rss_kb(void) { struct rusage ru; getrusage(RUSAGE_SELF, &ru); return (uint64_t)ru.ru_maxrss; }
 static int64_t boottime_s(void) { return (int64_t)time(NULL) - (int64_t)(mach_absolute_time() / 1000000000ull); }
 static int sysctlnametomib(const char *n, int *mib, size_t *l) { (void)n; (void)mib; (void)l; return errno = ENOENT, -1; }
@@ -1223,7 +1223,7 @@ static void sample_base(void)
 {
 	sp.abs = abs_now();
 	sp.ncpu = cpu_ticks(sp.cpu, NCPU_MAX);
-	vm_stats(&sp.vm);
+	vm_sample(&sp.vm);
 	sp.self_us = self_cpu_us();
 	sp.tx = tx_bytes;
 	sp.kbytes = k_bytes;
@@ -1256,7 +1256,7 @@ static void sample(void)
 		}
 	}
 	struct vmst v;
-	if (vm_stats(&v) == 0)
+	if (vm_sample(&v) == 0)
 		jb_pf(j, "},\"vm\":{\"free\":%llu,\"active\":%llu,\"inactive\":%llu,\"wired\":%llu,\"compressed\":%llu,\"spec\":%llu,"
 		    "\"pageins\":%llu,\"swapins\":%llu,\"faults\":%llu,\"page_kb\":%u}", (unsigned long long)v.free,
 		    (unsigned long long)v.active, (unsigned long long)v.inactive, (unsigned long long)v.wired,
