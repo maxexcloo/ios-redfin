@@ -1,4 +1,4 @@
-"""Run host tests, pd-mapper QMI tests and patch structure checks without a phone."""
+"""Run host tests, phone component host tests and patch structure checks without a phone."""
 
 import subprocess
 import sys
@@ -10,7 +10,8 @@ subprocess.run(
     cwd=ROOT,
     check=True,
 )
-subprocess.run(["sh", "phone/wifi/test.sh"], cwd=ROOT, check=True)
+for component in ("fastrpc", "sensors", "wifi"):
+    subprocess.run(["sh", f"phone/{component}/test.sh"], cwd=ROOT, check=True)
 patches = subprocess.check_output(["git", "ls-files", "*.patch"], cwd=ROOT, text=True)
 for patch in patches.split():
     result = subprocess.run(
