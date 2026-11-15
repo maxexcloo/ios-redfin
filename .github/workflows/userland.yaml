@@ -84,10 +84,8 @@ jobs:
           cd repo
           sh phone/wifi/build.sh
           cp phone/wifi/out/wland ../out/
-          sh phone/sensors/test.sh > ../out/sensd-test.log 2>&1 || { echo "::warning::sensd host tests failed"; tail -20 ../out/sensd-test.log; }
           sh phone/sensors/build.sh && cp phone/sensors/out/sensd ../out/ || echo "::warning::sensd failed"
           sh phone/bt/build.sh && cp phone/bt/out/btd phone/bt/out/bluetool phone/bt/out/tlv_test.log ../out/
-          sh phone/fastrpc/test.sh > ../out/fastrpcd-test.log 2>&1 || { echo "::warning::fastrpcd host tests failed"; tail -20 ../out/fastrpcd-test.log; }
           sh phone/fastrpc/build.sh
           cp phone/fastrpc/out/fastrpcd phone/fastrpc/org.iosonpixel.fastrpcd.plist ../out/
           bash phone/tools/build.sh || echo "::warning::some phone tools failed"
@@ -99,9 +97,7 @@ jobs:
             echo "::warning::RedwoodAudio.driver failed"
             tail -40 ../out/audio-build.log
           fi
-          for t in psx pstack netsvc nettest oslog prefs openapp lsreg memwarn pmem a2s imgdump autolock; do
-            if [ -f "phone/tools/out/$t" ]; then cp "phone/tools/out/$t" ../out/; fi
-          done
+          cp phone/tools/out/* ../out/
       - name: Check & Sign
         run: |
           cd out

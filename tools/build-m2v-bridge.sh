@@ -2,7 +2,7 @@
 # Build the native Metal bridge (phone/metal2/bridge/NativeMetalBridge.rs: UniXNU's bridge over the metal2vulkan
 # runtime, MIT) as a static library for iOS 16 arm64.
 #   tools/build-m2v-bridge.sh [host]
-# Source: work/metal2vulkan = github.com/steelbrain/metal2vulkan 720ef1ce (UniXNU's pin) + phone/metal2/bridge/patches.
+# Source: work/metal2vulkan = github.com/steelbrain/metal2vulkan at M2V_COMMIT in .github/workflows/metal2.yaml (UniXNU's pin) + phone/metal2/bridge/patches.
 # Output: work/m2v-bridge/<target>/libnative_metal_bridge.a
 set -e
 cd "$(dirname "$0")/.."
@@ -11,7 +11,7 @@ SRC=$ROOT/work/metal2vulkan
 OUT=$ROOT/work/m2v-bridge
 target=${1:-ios}
 mkdir -p "$OUT"
-LLVM_AS=/opt/homebrew/opt/llvm/bin/llvm-as
+LLVM_AS="$(brew --prefix llvm)/bin/llvm-as"
 "$LLVM_AS" -o "$OUT/runtime_examples.air" "$SRC/crates/metal2vulkan-validation/fixtures/public/examples/runtime_examples.ll"
 "$LLVM_AS" -o "$OUT/function_constant.air" "$SRC/crates/metal2vulkan-validation/fixtures/public/kernel_function_constant_gate_fold.ll"
 cat > "$OUT/Cargo.toml" <<EOF

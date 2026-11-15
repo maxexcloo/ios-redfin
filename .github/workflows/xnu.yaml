@@ -29,8 +29,7 @@ permissions:
 
 jobs:
   build:
-    # macos-15 (GitHub retired macos-14). Its Xcode 16+ iig emits IORPC.kernelContent,
-    # which patch 0082 adds to xnu-8796; the kernel builds and runs from macos-15.
+    # Xcode 16+ iig emits IORPC.kernelContent, which patch 0082 adds to xnu-8796.
     runs-on: macos-15
     timeout-minutes: 120
     steps:
@@ -51,7 +50,7 @@ jobs:
       - name: Install Dependencies
         run: |
           brew install jq gum bash cmake ninja
-          # build.sh only checks that xcodes exists (Xcode is preinstalled); no bottle on macOS 14
+          # build.sh only checks that xcodes exists (Xcode is preinstalled)
           printf '#!/bin/sh\nexit 0\n' | sudo tee /usr/local/bin/xcodes >/dev/null
           sudo chmod +x /usr/local/bin/xcodes
           sw_vers
@@ -64,7 +63,7 @@ jobs:
       # Incremental builds: dxb/xnu (patched source), dxb/build/xnu.obj and the fakeroot (mig, ctf tools,
       # libfirehose, headers) come from the last successful run. The new patch set is applied to a pristine
       # copy of the source with build.sh's own patches(); rsync --checksum then copies only files whose
-      # content changed, so make recompiles just those. A miss or clean=true is the old full build.
+      # content changed, so make recompiles just those. A miss or clean=true is a full build.
       - name: Restore Incremental Build Cache
         id: cache
         if: ${{ !inputs.clean }}

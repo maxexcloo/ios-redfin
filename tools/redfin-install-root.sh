@@ -1,7 +1,7 @@
 #!/bin/bash
 # Write the iOS root image to the Pixel 5's userdata partition, over adb from TWRP.
 #
-#   bash tools/redfin-install-root.sh [IMG]           write, then verify every GiB
+#   bash tools/redfin-install-root.sh [write] [IMG]   write, then verify every GiB
 #   bash tools/redfin-install-root.sh verify [IMG]    only compare
 #
 # THIS ERASES ANDROID'S USER DATA (apps, photos, settings). Android's system,
@@ -24,7 +24,7 @@ die() { printf '\n\033[31mFAILED: %s\033[0m\n' "$*" >&2; exit 1; }
 sh_() { adb shell "$@" </dev/null | tr -d '\r'; }
 
 [[ -f $IMG ]] || die "no image at $IMG"
-[[ $MODE == write || $MODE == verify ]] || die "usage: $0 [verify] [IMG]"
+[[ $MODE == write || $MODE == verify ]] || die "usage: $0 [write|verify] [IMG]"
 
 say "phone"
 [[ $(adb get-state 2>/dev/null | tr -d '\r') == recovery ]] ||

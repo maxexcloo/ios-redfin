@@ -1,7 +1,7 @@
 name: Metal2
 
-# SweetMetal2.bundle for iOS 16 arm64: Turnip (Mesa 85fda3b3 + UniXNU's mesa patches at the commit flame used +
-# phone/turnip/patches) and the metal2vulkan bridge (steelbrain/metal2vulkan 720ef1ce + phone/metal2/bridge/patches),
+# SweetMetal2.bundle for iOS 16 arm64: Turnip (Mesa at MESA_COMMIT + UniXNU's mesa patches at the commit flame used +
+# phone/turnip/patches) and the metal2vulkan bridge (steelbrain/metal2vulkan at M2V_COMMIT + phone/metal2/bridge/patches),
 # linked by phone/metal2/build.sh. Install with tools/redfin-install-metal2.sh; boot with sweetmtl=2.
 
 on:
@@ -56,7 +56,6 @@ jobs:
           git clone -q https://github.com/steelbrain/metal2vulkan.git work/metal2vulkan
           git -C work/metal2vulkan checkout -q "$M2V_COMMIT"
           for p in phone/metal2/bridge/patches/*.patch; do echo "apply $p"; git -C work/metal2vulkan apply --whitespace=nowarn "$PWD/$p"; done
-          sed -i '' 's|/opt/homebrew/opt/llvm/bin/llvm-as|'"$(brew --prefix llvm)"'/bin/llvm-as|' tools/build-m2v-bridge.sh
           sh tools/build-m2v-bridge.sh
       - name: Build SweetMetal2.bundle
         run: |

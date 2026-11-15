@@ -2,11 +2,11 @@
 # shellcheck disable=SC2086 # opts and cross_arg are option lists
 # Build Turnip (Mesa's Vulkan driver for Adreno) for iOS 16 arm64 with the darwin kernel backend.
 #   tools/build-turnip-ios.sh [host]     (host: a macOS build of the same source, for checks on the Mac)
-# Source: work/turnip/mesa = Mesa 85fda3b3 + UniXNU's patches/mesa (in their order, see
-# reference-repos/UniXNU/scripts/data/adreno-compiler-inputs.json). The backend (tu_knl_darwin.cc) talks to
+# Source: work/turnip/mesa = Mesa at MESA_COMMIT in .github/workflows/metal2.yaml + UniXNU's patches/mesa
+# (in their order, see scripts/data/adreno-compiler-inputs.json in UniXNU). The backend (tu_knl_darwin.cc) talks to
 # the kernel's SweetAccelerator v2 user client through phone/turnip/NativeAdrenoABI.h.
 # Output: work/turnip/build-ios/src/freedreno/vulkan/libvulkan_freedreno.dylib
-# r34: Mesa's shader disk cache is built in (SweetMetal2 points MESA_SHADER_CACHE_DIR at the m2v cache directory: compiled
+# Mesa's shader disk cache is built in (SweetMetal2 points MESA_SHADER_CACHE_DIR at the m2v cache directory: compiled
 # ir3 shaders found across processes even where the runtime's per-making VkPipelineCache records are not; SWEET_MESA_CACHE=0 off).
 set -e
 cd "$(dirname "$0")/.."
