@@ -29,7 +29,7 @@ CC=("$LLVM/clang" --target=aarch64-none-elf)
 read -ra extra <<< "${SHIM_CFLAGS:-}"
 CFLAGS=(-O2 -ffreestanding -nostdlib -fno-builtin -fno-pic -fno-pie -mgeneral-regs-only -mstrict-align
 	-fno-stack-protector -fno-asynchronous-unwind-tables -Wall -Wextra ${extra[@]+"${extra[@]}"})
-SRCS=(start.S shim.c console.c log.c util.c mmu.c fdt.c loader.c ufs.c spmi.c sde.c showlog.c diag.c disptest.c gpuprobe.c gpufw.S smmuprobe.c ramlog.c)
+SRCS=(start.S shim.c console.c log.c util.c fdt.c loader.c ufs.c spmi.c sde.c showlog.c diag.c disptest.c gpuprobe.c gpufw.S smmuprobe.c ramlog.c)
 mkdir -p out
 objs=()
 for f in "${SRCS[@]}"; do

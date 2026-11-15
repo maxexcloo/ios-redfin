@@ -69,14 +69,6 @@ static int put_str(int col, const char *s, uint32_t fg)
 	return col;
 }
 
-static void fmt_hex(char *buf, uint64_t v, int digits)
-{
-	static const char hex[] = "0123456789ABCDEF";
-	for (int i = 0; i < digits; i++)
-		buf[i] = hex[(v >> (4 * (digits - 1 - i))) & 0xf];
-	buf[digits] = 0;
-}
-
 void con_skip(void)
 {
 	row++;
@@ -129,28 +121,5 @@ void con_str(const char *label, const char *s)
 {
 	put_str(0, label, YELLOW);
 	put_str(LABEL_COLS, s, WHITE);
-	row++;
-}
-
-void con_hex(const char *label, uint64_t v)
-{
-	char buf[17];
-	fmt_hex(buf, v, 16);
-	con_str(label, buf);
-}
-
-void con_hex2(const char *label, const char *a, uint32_t va, const char *b, uint32_t vb)
-{
-	char buf[9];
-	int col = put_str(0, label, YELLOW);
-	col = col < LABEL_COLS ? LABEL_COLS : col + 1;
-	col = put_str(col, a, YELLOW);
-	fmt_hex(buf, va, 8);
-	col = put_str(col, buf, WHITE);
-	if (b) {
-		col = put_str(col + 1, b, YELLOW);
-		fmt_hex(buf, vb, 8);
-		put_str(col, buf, WHITE);
-	}
 	row++;
 }

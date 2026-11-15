@@ -19,6 +19,9 @@ import struct
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import fdt
+
 # --- the values the code uses ------------------------------------------------------------------------------
 # finders: ('compat', REGEX, REG_INDEX)          nodes whose compatible matches
 #          ('name', REGEX, REG_INDEX)            nodes whose name (with unit address) matches
@@ -156,76 +159,18 @@ NTH = {"tsens0_tm": 0, "tsens1_tm": 1, "qup0_wrapper": 0}
 
 
 # --- FDT ---------------------------------------------------------------------------------------------------
-class Node:
-    def __init__(self, name, parent):
-        self.name, self.parent, self.props, self.children = name, parent, {}, []
-
-    @property
-    def path(self):
-        if self.parent is None:
-            return "/"
-        p = self.parent.path
-        return (p if p != "/" else "") + "/" + self.name
-
-    def walk(self):
-        yield self
-        for c in self.children:
-            yield from c.walk()
-
-    def cells(self, prop):
-        v = self.props.get(prop)
-        return (
-            None
-            if v is None
-            else list(struct.unpack(f">{len(v) // 4:d}I", v[: len(v) // 4 * 4]))
-        )
-
-    def strs(self, prop):
-        v = self.props.get(prop)
-        return (
-            []
-            if not v
-            else [s.decode(errors="replace") for s in v.rstrip(b"\0").split(b"\0")]
-        )
-
-    def ncells(self, prop, default):
-        c = self.cells(prop)
-        return c[0] if c else default
-
-
 def parse(blob):
     if len(blob) < 40:
         raise ValueError("too short for an FDT")
-    magic, _total, off_struct, off_strings = struct.unpack_from(">4I", blob, 0)
+    magic = struct.unpack_from(">I", blob)[0]
     if magic != 0xD00DFEED:
         raise ValueError(f"not an FDT (magic {magic:#x})")
-    p, root, cur = off_struct, None, None
-    while True:
-        (tok,) = struct.unpack_from(">I", blob, p)
-        p += 4
-        if tok == 1:  # FDT_BEGIN_NODE
-            end = blob.index(b"\0", p)
-            n = Node(blob[p:end].decode() or "/", cur)
-            p = (end + 4) & ~3
-            if cur is None:
-                root = n
-            else:
-                cur.children.append(n)
-            cur = n
-        elif tok == 2:  # FDT_END_NODE
-            cur = cur.parent
-        elif tok == 3:  # FDT_PROP
-            ln, nameoff = struct.unpack_from(">II", blob, p)
-            p += 8
-            s = off_strings + nameoff
-            cur.props[blob[s : blob.index(b"\0", s)].decode()] = bytes(blob[p : p + ln])
-            p = (p + ln + 3) & ~3
-        elif tok == 4:  # FDT_NOP
-            continue
-        elif tok == 9:  # FDT_END
-            return root
-        else:
-            raise ValueError(f"bad token {tok:#x} at {p - 4:#x}")
+    return fdt.parse(blob)
+
+
+def ncells(node, prop, default):
+    c = node.u32s(prop)
+    return c[0] if c else default
 
 
 def num(cells):
@@ -243,10 +188,10 @@ def translate(node, addr):
         if r is None:
             return None  # no ranges: not memory-mapped
         if r:
-            ca = bus.ncells("#address-cells", 2)
-            pa = bus.parent.ncells("#address-cells", 2)
-            sc = bus.ncells("#size-cells", 1)
-            c, step, hit = bus.cells("ranges"), ca + pa + sc, None
+            ca = ncells(bus, "#address-cells", 2)
+            pa = ncells(bus.parent, "#address-cells", 2)
+            sc = ncells(bus, "#size-cells", 1)
+            c, step, hit = bus.u32s("ranges"), ca + pa + sc, None
             for i in range(0, len(c) - step + 1, step):
                 child, parent, size = (
                     num(c[i : i + ca]),
@@ -265,12 +210,12 @@ def translate(node, addr):
 
 def regs(node):
     """reg as [(cpu address, size)], with the parent's #address-cells/#size-cells."""
-    c = node.cells("reg")
+    c = node.u32s("reg")
     if not c or node.parent is None:
         return []
     ac, sc = (
-        node.parent.ncells("#address-cells", 2),
-        node.parent.ncells("#size-cells", 1),
+        ncells(node.parent, "#address-cells", 2),
+        ncells(node.parent, "#size-cells", 1),
     )
     out = []
     for i in range(0, len(c) - ac - sc + 1, ac + sc):
@@ -282,10 +227,10 @@ def regs(node):
 
 def phandles(root):
     return {
-        n.cells(k)[0]: n
+        n.u32s(k)[0]: n
         for n in root.walk()
         for k in ("phandle", "linux,phandle")
-        if n.cells(k)
+        if n.u32s(k)
     }
 
 
@@ -325,7 +270,7 @@ def find(root, ph, how):
                 out.append((a, f'{n.path} reg "{how[2]}" size {s:#x}'))
     elif kind in ("mem", "mem-size"):
         for n in select(root, how[1]):
-            c = n.cells(how[2])
+            c = n.u32s(how[2])
             t = ph.get(c[0]) if c else None
             rg = regs(t) if t is not None else []
             if rg:
@@ -342,13 +287,13 @@ def find(root, ph, how):
                 out.append((rg[0][0], f"{n.parent.path} (bus of {n.name})"))
     elif kind in ("hwlock", "hwlock-pa"):
         for n in select(root, how[1]):
-            c = n.cells("hwlocks")
+            c = n.u32s("hwlocks")
             t = ph.get(c[0]) if c else None
             if t is None:
                 continue
             idx = c[1] if len(c) > 1 else 0
             block = t
-            sc = t.cells(
+            sc = t.u32s(
                 "syscon"
             )  # qcom,tcsr-mutex: syscon = <&tcsr_mutex_regs base stride>
             if sc and sc[0] in ph:

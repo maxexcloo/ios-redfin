@@ -12,8 +12,6 @@ for s in fill.comp:fill_comp tri.vert:tri_vert tri.frag:tri_frag full.vert:full_
 done
 "$ROOT/tools/ios-cc" -O2 -Wall -I out -I "$ROOT/work/turnip/mesa/include" -o out/vktest vktest.c
 codesign -f -s - out/vktest 2>/dev/null
-# u-gpudraw: into the metal2 build's outputs too (lb.sh copies phone/metal2/out)
-[ -d ../metal2/out ] && cp out/vktest ../metal2/out/vktest
 cp "$ROOT/work/turnip/build-ios/src/freedreno/vulkan/libvulkan_freedreno.dylib" out/
 codesign -f -s - out/libvulkan_freedreno.dylib 2>/dev/null
 ls -la out/vktest out/libvulkan_freedreno.dylib

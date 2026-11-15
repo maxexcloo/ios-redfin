@@ -64,17 +64,7 @@ if [ "$GPU" -ge 1 ]; then
 	base=$(printf '%s\n' $base | grep -v -e '^sweetgpu=' -e '^sweetfb_thread=' -e '^sweetddr=' | tr '\n' ' ')
 	base="$base sweetgpu=1 sweetfb_thread=1 sweetddr=1"
 	[ "${FLIP:-0}" = 1 ] && base="$base sweetfbflip=1"
-	# The GPU is useless without its firmware: check before building, not on the phone.
 	GPUFW=${GPUFW:-fw-redfin}
-	missing=
-	for f in a650_gmu.bin a650_sqe.fw a620_zap.mdt a620_zap.b02; do
-		[ -s "$GPUFW/$f" ] || missing="$missing $f"
-	done
-	[ -z "$missing" ] || {
-		echo "GPU=$GPU needs Adreno firmware in $GPUFW/:$missing" >&2
-		echo "  tools/redfin-gpufw.sh FACTORY.zip   (see the header there)" >&2
-		exit 1
-	}
 fi
 if [ "$GPU" -ge 2 ]; then
 	base=$(printf '%s\n' $base | grep -v -e '^sweetmtl=' | tr '\n' ' ')

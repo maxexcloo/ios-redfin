@@ -10,8 +10,11 @@ on:
   workflow_dispatch:
 
 env:
+  # renovate: datasource=github-tags depName=mkj/dropbear extractVersion=^DROPBEAR_(?<version>.+)$
   DROPBEAR_VER: "2022.83"
+  # renovate: datasource=git-tags depName=https://git.kernel.org/pub/scm/utils/dash/dash.git
   DASH_VER: "0.5.12"
+  # renovate: datasource=github-tags depName=landley/toybox
   TOYBOX_VER: "0.8.11"
 
 permissions:

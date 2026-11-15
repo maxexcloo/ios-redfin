@@ -3,15 +3,15 @@
 usage: sweetmon-client.py [-H HOST] [-p PORT] [-k TOKEN|-K KEYFILE] [-t SECS] [-o DIR] [CMD ...]
   Connects, authenticates, sends each CMD (one argv word per command line, e.g. 'rate 500 1' 'klog 0x101d0ef08'),
   prints a one-line summary of every frame for SECS seconds (default 5; 0 = until the first E frame after a trace).
-  T chunks are joined per trace id and written to DIR/trace-<id>.lz4 and, decompressed (python lz4 if present, else
-  tools/lz4py.py), DIR/trace-<id>.swtr (kdebug) or .bin (pmem)."""
+  T chunks are joined per trace id and written to DIR/trace-<id>.lz4 and, decompressed with the lz4 command,
+  DIR/trace-<id>.swtr (kdebug) or .bin (pmem)."""
 
 import argparse
 import json
 import os
 import socket
 import struct
-import sys
+import subprocess
 import time
 from pathlib import Path
 
@@ -31,15 +31,9 @@ tok = a.token or (Path(a.keyfile).read_text().strip() if a.keyfile else None)
 
 
 def lz4_decompress(d):
-    try:
-        import lz4.frame
-
-        return lz4.frame.decompress(d)
-    except ImportError:
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        import lz4py
-
-        return lz4py.decompress(d)
+    return subprocess.run(
+        ["lz4", "-d", "-c"], input=d, capture_output=True, check=True
+    ).stdout
 
 
 s = socket.create_connection((a.host, a.port), timeout=10)
