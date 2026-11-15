@@ -1,6 +1,6 @@
 /*
  * pstack PID: every thread's pc/lr and frame-pointer backtrace, plus the
- * shared cache slide, for symbolication on the Mac (tools/flame-pstack.sh
+ * shared cache slide, for symbolication on the Mac (tools/redfin-profile.py
  * does both). Needs task_for_pid (boot policy allows it; signed with
  * task_for_pid-allow).
  */
