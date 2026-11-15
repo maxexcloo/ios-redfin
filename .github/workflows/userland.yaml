@@ -97,9 +97,7 @@ jobs:
             echo "::warning::RedwoodAudio.driver failed"
             tail -40 ../out/audio-build.log
           fi
-          for t in psx pstack netsvc nettest oslog prefs openapp lsreg memwarn pmem a2s imgdump autolock; do
-            if [ -f "phone/tools/out/$t" ]; then cp "phone/tools/out/$t" ../out/; fi
-          done
+          cp phone/tools/out/* ../out/
       - name: Check & Sign
         run: |
           cd out
