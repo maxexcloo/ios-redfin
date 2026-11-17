@@ -73,7 +73,6 @@ jobs:
           make -j4
           cp src/dash ../out/
       - name: Build Toybox
-        continue-on-error: true
         run: |
           brew install gnu-sed >/dev/null
           PATH="$(brew --prefix gnu-sed)/libexec/gnubin:$PATH"
@@ -84,6 +83,8 @@ jobs:
           mkdir -p ios-inc/sys
           printf '#include <sys/ioctl.h>\n#include <stdint.h>\n#define DKIOCGETBLOCKSIZE _IOR(%s, 24, uint32_t)\n#define DKIOCGETBLOCKCOUNT _IOR(%s, 25, uint64_t)\n' "'d'" "'d'" > ios-inc/sys/disk.h
           make macos_defconfig HOSTCC=cc
+          # iOS has no posix_fadvise().
+          sed -i 's/^CONFIG_READAHEAD=y$/# CONFIG_READAHEAD is not set/' .config
           CC=ios-cc HOSTCC=cc CFLAGS="-I$PWD/ios-inc" make -j4 toybox
           cp toybox ../out/
       - name: Build Phone Tools
