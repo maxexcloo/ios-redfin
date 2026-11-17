@@ -72,11 +72,7 @@ def atos(obj, base, group):
         names[a] = re.sub(r" \(in [^)]*\)", "", n)
 
 
-sm2 = [
-    a
-    for a in addrs
-    if sm2_base <= a < sm2_base + 0x4000000 and a < tu_base or (sm2_base <= a < tu_base)
-]
+sm2 = [a for a in addrs if sm2_base <= a < tu_base]
 tu = [a for a in addrs if tu_base <= a < tu_base + 0x2000000]
 atos(ROOT + "/phone/metal2/out/SweetMetal2.dSYM", sm2_base, sm2)
 atos(

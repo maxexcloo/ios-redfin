@@ -11,11 +11,11 @@ on:
 
 env:
   # renovate: datasource=github-tags depName=mkj/dropbear extractVersion=^DROPBEAR_(?<version>.+)$
-  DROPBEAR_VER: "2022.83"
+  DROPBEAR_VER: "2026.94"
   # renovate: datasource=git-tags depName=https://git.kernel.org/pub/scm/utils/dash/dash.git
   DASH_VER: "0.5.12"
   # renovate: datasource=github-tags depName=landley/toybox
-  TOYBOX_VER: "0.8.11"
+  TOYBOX_VER: "0.8.15"
 
 permissions:
   contents: read
@@ -46,6 +46,10 @@ jobs:
           #define DROPBEAR_SVR_PAM_AUTH 0
           #define DROPBEAR_SVR_PUBKEY_AUTH 1
           #define DROPBEAR_SVR_MULTIUSER 1
+          /* iOS lacks setresgid(), required by privilege dropping and Unix socket forwarding. */
+          #define DROPBEAR_SVR_DROP_PRIVS 0
+          #define DROPBEAR_SVR_LOCALSTREAMFWD 0
+          #define DROPBEAR_SVR_REMOTESTREAMFWD 0
           #define DROPBEAR_X11FWD 0
           #define DEFAULT_PATH "/var/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
           #define DEFAULT_ROOT_PATH "/var/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -69,7 +73,6 @@ jobs:
           make -j4
           cp src/dash ../out/
       - name: Build Toybox
-        continue-on-error: true
         run: |
           brew install gnu-sed >/dev/null
           PATH="$(brew --prefix gnu-sed)/libexec/gnubin:$PATH"
@@ -80,6 +83,8 @@ jobs:
           mkdir -p ios-inc/sys
           printf '#include <sys/ioctl.h>\n#include <stdint.h>\n#define DKIOCGETBLOCKSIZE _IOR(%s, 24, uint32_t)\n#define DKIOCGETBLOCKCOUNT _IOR(%s, 25, uint64_t)\n' "'d'" "'d'" > ios-inc/sys/disk.h
           make macos_defconfig HOSTCC=cc
+          # iOS has no posix_fadvise().
+          sed -i 's/^CONFIG_READAHEAD=y$/# CONFIG_READAHEAD is not set/' .config
           CC=ios-cc HOSTCC=cc CFLAGS="-I$PWD/ios-inc" make -j4 toybox
           cp toybox ../out/
       - name: Build Phone Tools
