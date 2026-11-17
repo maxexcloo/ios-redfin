@@ -88,7 +88,7 @@ This repository is a fork of ios-sweet and keeps its [MIT License](LICENSE); the
 - **ios-topaz** ([MakrSas](https://github.com/MakrSas/ios-topaz)): the Redmi Note 12 4G fork of ios-sweet, whose CREDITS.md puts the HackiOS-derived kernel parts under APSL 2.0.
   - `phone/wifi/radio.c` is a userland port of its TopazModem radio (its patches 0123-0130).
   - Patch 0123 contains its 0900 (en0 + Apple80211 for wifid) and 0128 (IOKit quiesce).
-  - Patch 0990 (`bsd/kern/redfin_sandbox_container.c`, Sandbox container path from CFFIXED_USER_HOME) is its 0936 / HackiOS's `minisandbox_container_path` in `kern_minimac.c` (APSL 2.0), with bounds checks, a kill switch and a log.
+  - Patch 1011 (`bsd/kern/redfin_sandbox_container.c`, Sandbox container path from CFFIXED_USER_HOME) is its 0936 / HackiOS's `minisandbox_container_path` in `kern_minimac.c` (APSL 2.0), with bounds checks, a kill switch and a log.
 - **UniXNU** ([GitHub](https://github.com/UniXNU/UniXNU), BSD-2-Clause-Patent at the top level):
   - `phone/metal2/NativeBridgeMetalFrontend.mm`: NativeMetal, MIT, patched for iOS 16.
   - `phone/metal2/bridge/` (NativeMetalBridge/NativeMetalObjects): NativeMetal, MIT; see `phone/metal2/bridge/LICENSE`.
