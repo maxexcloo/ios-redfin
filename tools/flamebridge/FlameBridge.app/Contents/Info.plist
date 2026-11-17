@@ -9,6 +9,6 @@
 	<key>CFBundleShortVersionString</key><string>1.0</string>
 	<key>CFBundleVersion</key><string>1</string>
 	<key>LSUIElement</key><true/>
-	<key>NSLocalNetworkUsageDescription</key><string>FlameBridge relays SSH and debug traffic to the Pixel 4 running iOS over USB Ethernet (192.168.7.2).</string>
+	<key>NSLocalNetworkUsageDescription</key><string>FlameBridge relays SSH and debug traffic to the Pixel 5 running iOS over USB Ethernet (192.168.7.2).</string>
 </dict>
 </plist>
