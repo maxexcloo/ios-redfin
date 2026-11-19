@@ -146,10 +146,12 @@ jobs:
           key: xnu-inc-${{ env.MACOS_VERSION }}-${{ env.KERNEL_CONFIG }}-${{ env.MACHINE_CONFIG }}-${{ github.run_id }}
       - name: Collect Kernel
         run: |
+          kernel=kernel.development.sweet
+          test -s "dxb/fakeroot/System/Library/Kernels/$kernel"
           mkdir -p out
-          cp -R dxb/fakeroot/System/Library/Kernels/. out/
-          ls -la out
-          (cd out && shasum -a 256 kernel.* > SHA256SUMS)
+          cp "dxb/fakeroot/System/Library/Kernels/$kernel" out/
+          cd out
+          shasum -a 256 "$kernel" > SHA256SUMS
       - uses: actions/upload-artifact@v7
         with:
           name: xnu-kernel
