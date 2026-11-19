@@ -11,10 +11,12 @@ import random
 import shutil
 import struct
 import subprocess
+import sys
 import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "tools"))
 spec = importlib.util.spec_from_file_location(
     "camtune", os.path.join(HERE, "..", "tools", "redfin-camtune.py")
 )

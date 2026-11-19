@@ -43,6 +43,8 @@ import math
 import struct
 import sys
 
+from redfin_camx import parse
+
 LSC_W, LSC_H = 17, 13
 GRID = LSC_W * LSC_H
 MAX_LIGHTS, MAX_CCTS, MAX_REFS = 6, 6, 16
@@ -55,17 +57,11 @@ def load(path):
     """(data, symbols): symbols [(name, kind, parent, offset, size)] with offsets into data"""
     with open(path, "rb") as fp:
         d = fp.read()
-    if not d.startswith(b"QTI Chromatix Header") or len(d) < 0xD0:
+    try:
+        data, symbols = parse(d)
+    except ValueError:
         return d, []
-    toff, tsz = struct.unpack_from("<QQ", d, 0xA8)
-    doff, dsz = struct.unpack_from("<QQ", d, 0xC0)
-    if toff + tsz > len(d) or doff + dsz > len(d):
-        return d, []
-    syms = []
-    for o in range(toff, toff + tsz - 0x47, 0x48):
-        _sid, name, kind, parent, off, size = struct.unpack_from("<Q32sQQQQ", d, o)
-        syms.append((name.split(b"\0")[0].decode("latin1"), kind, parent, off, size))
-    return d[doff : doff + dsz], syms
+    return data, [symbol[1:] for symbol in symbols]
 
 
 ENCODINGS = {"f32": (4, "<f", 0), "f64": (8, "<d", 0), "f32lo": (8, "<f", 0)}

@@ -13,9 +13,12 @@ import re
 import socket
 import sys
 import time
+from pathlib import Path
+
+from redfin_log import LIVE_LOG
 
 ap = argparse.ArgumentParser()
-ap.add_argument("out", nargs="?", default="logs/live.txt")
+ap.add_argument("out", nargs="?", type=Path, default=LIVE_LOG)
 ap.add_argument(
     "--secs", type=float, default=0, help="stop after N seconds (0: run until ^C)"
 )
@@ -28,7 +31,9 @@ s.bind(("0.0.0.0", 5140))
 s.settimeout(1.0)
 end = time.time() + a.secs if a.secs else None
 n = 0
-with open(a.out, "ab") as f:
+if a.out == LIVE_LOG:
+    LIVE_LOG.parent.mkdir(exist_ok=True)
+with a.out.open("ab") as f:
     while end is None or time.time() < end:
         try:
             data, src = s.recvfrom(65536)

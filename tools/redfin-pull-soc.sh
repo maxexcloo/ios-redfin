@@ -1,7 +1,7 @@
 #!/bin/bash
 # tools/redfin-pull-soc.sh [--check]: pull the Pixel 5's own device tree over adb (the live FDT ABL hands
 # over, /sys/firmware/fdt) and print the SM7250 addresses the port hard-codes (tools/soc-args.py), writing
-# them to shim/soc.args. --check: compare them with the values the code uses instead (exit 1 on a
+# them to shim/soc.args. --check: compare them with the values recorded in soc-args.py instead (exit 1 on a
 # difference). The vayu port's pull-soc.sh convention.
 #
 # The phone: Android with adb, or TWRP (adb root). Read-only on the phone. The tree itself carries the serial
@@ -20,10 +20,11 @@ if ! adb pull /sys/firmware/fdt "$tmp/fdt" >/dev/null 2>&1; then
 	[ "$got" -eq 0 ] || { echo "redfin-pull-soc.sh: cannot read /sys/firmware/fdt over adb, with or without su"; exit 1; }
 fi
 if [ "${1:-}" = --check ]; then
-	exec python3 -I tools/soc-args.py "$tmp/fdt" --check
+	python3 -I tools/soc-args.py "$tmp/fdt" --check
+	exit
 fi
 # made aside and copied over, so that a failure leaves the soc.args that was there
 python3 -I tools/soc-args.py "$tmp/fdt" > "$tmp/soc.args"
 cp "$tmp/soc.args" shim/soc.args
 cat shim/soc.args
-echo "redfin-pull-soc.sh: wrote shim/soc.args (python3 -I tools/soc-args.py DTB --check compares with the code)"
+echo "redfin-pull-soc.sh: wrote shim/soc.args"

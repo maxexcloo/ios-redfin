@@ -52,39 +52,6 @@ static uint16_t csum(const void *p, uint32_t len, uint32_t sum)
 	return (uint16_t)~sum;
 }
 
-static int tun_open(void)
-{
-	struct ctl_info ci;
-	struct sockaddr_ctl sc;
-	socklen_t nl = sizeof(tun_name);
-	int fd = socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL);
-	if (fd < 0) {
-		LOG("utun: socket: %s", strerror(errno));
-		return -1;
-	}
-	memset(&ci, 0, sizeof(ci));
-	snprintf(ci.ctl_name, sizeof(ci.ctl_name), "com.apple.net.utun_control");
-	memset(&sc, 0, sizeof(sc));
-	if (ioctl(fd, CTLIOCGINFO, &ci) < 0)
-		goto fail;
-	sc.sc_len = sizeof(sc);
-	sc.sc_family = AF_SYSTEM;
-	sc.ss_sysaddr = AF_SYS_CONTROL;
-	sc.sc_id = ci.ctl_id;
-	sc.sc_unit = 0;					/* the next free utunN */
-	if (connect(fd, (struct sockaddr *)&sc, sizeof(sc)) < 0 ||
-	    getsockopt(fd, SYSPROTO_CONTROL, UTUN_OPT_IFNAME, tun_name, &nl) < 0)
-		goto fail;
-	fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
-	tun = fd;
-	LOG("utun: %s", tun_name);
-	return 0;
-fail:
-	LOG("utun: %s", strerror(errno));
-	close(fd);
-	return -1;
-}
-
 /* the lease on the utun (point to point to the router) and to configd */
 static void tun_configure(void)
 {
@@ -128,8 +95,6 @@ static void tun_configure(void)
 	    e ? strerror(e) : "started");
 }
 
-/* a separate utun for the cellular path (ipagsi.c): the same dance as tun_open(), but the fd and
- * the name belong to the caller and ipnet's own tun/tun_name/DHCP state is left alone */
 int ipnet_utun_open(char *name, size_t n)
 {
 	struct ctl_info ci;
@@ -164,7 +129,7 @@ int ipnet_utun_open(char *name, size_t n)
 		return -1;
 	}
 	fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
-	LOG("utun (cell): %s", name);
+	LOG("utun: %s", name);
 	return fd;
 }
 
@@ -563,7 +528,11 @@ int ipnet_init(void)
 {
 	radio_rx_hook = ipnet_rx;
 	radio_link_hook = ipnet_link;
-	return tun_open();
+	int fd = ipnet_utun_open(tun_name, sizeof(tun_name));
+	if (fd < 0)
+		return -1;
+	tun = fd;
+	return 0;
 }
 
 void ipnet_poll(void)

@@ -300,7 +300,7 @@ class T(unittest.TestCase):
         self.assertIn("/reserved-memory/smem_region@80900000", paths)
         kgsl = next(n for n in root.walk() if n.name.startswith("qcom,kgsl-3d0"))
         self.assertEqual(kgsl.strs("compatible"), ["qcom,kgsl-3d0", "qcom,kgsl-3d"])
-        self.assertEqual(sa.regs(kgsl)[2], (0x3DE0000, 0x1000))
+        self.assertEqual(sa.reg_at(kgsl, 2), (0x3DE0000, 0x1000))
 
     def test_check_all_agree(self):
         rc, out = run(self.write(redfin_like()), "--check")
@@ -329,13 +329,20 @@ class T(unittest.TestCase):
         # /soc's children at bus address 0 map to CPU 0x1000000: every /soc address moves by that much
         root = sa.parse(redfin_like(soc_ranges=u32(0, 0, 0x1000000, 0x40000000)))
         ipcc = next(n for n in root.walk() if n.name.startswith("qcom,ipcc"))
-        self.assertEqual(sa.regs(ipcc), [(0x1408000, 0x1000)])
+        self.assertEqual(sa.reg_at(ipcc, 0), (0x1408000, 0x1000))
         rc, out = run(
             self.write(redfin_like(soc_ranges=u32(0, 0, 0x1000000, 0x40000000))),
             "--check",
         )
         self.assertEqual(rc, 1)
         self.assertRegex(out, r"DIFF\s+ipcc")
+
+    def test_unmapped_reg_keeps_its_index(self):
+        blob = redfin_like(soc_ranges=u32(0x3DE0000, 0, 0x3DE0000, 0x1000))
+        rc, out = run(self.write(blob), "--check")
+        self.assertEqual(rc, 1)
+        self.assertRegex(out, r"MISSING\s+gpu\s")
+        self.assertRegex(out, r"ok\s+gpu_rscc\s")
 
     def test_missing_node(self):
         blob = redfin_like().replace(b"camcc", b"xxxxx")  # node name and compatible

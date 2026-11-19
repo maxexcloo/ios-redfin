@@ -16,22 +16,34 @@ import sys
 import time
 from pathlib import Path
 
+from redfin_log import LIVE_LOG
+
+
+def replies(path):
+    try:
+        return re.findall(rb"SWEET RTC: (\d+)", path.read_bytes())
+    except FileNotFoundError:
+        return []
+
+
 os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-live = sys.argv[1] if len(sys.argv) > 1 else "logs/live.txt"
-before = Path(live).read_bytes().count(b"SWEET RTC: ")
+live = Path(sys.argv[1]) if len(sys.argv) > 1 else LIVE_LOG
+before = len(replies(live))
 t0 = time.time()
 subprocess.run(
     [sys.executable, "tools/redfin-cmd.py", "--wait", "0.1", "rtc"],
-    capture_output=True,
-    check=False,
+    stdout=subprocess.DEVNULL,
+    check=True,
 )
 t1 = time.time()
 for _ in range(100):
-    found = re.findall(rb"SWEET RTC: (\d+)", Path(live).read_bytes())
+    found = replies(live)
     if len(found) > before:
         rtc = int(found[-1])
         off = round((t0 + t1) / 2 - rtc)
-        Path("work/rtc-offset").write_text(f"{off}\n")
+        output = Path("work/rtc-offset")
+        output.parent.mkdir(exist_ok=True)
+        output.write_text(f"{off}\n")
         print(
             f"RTC {rtc} s, Mac {time.ctime(t0)}: sweetrtcoff={off} -> work/rtc-offset"
         )

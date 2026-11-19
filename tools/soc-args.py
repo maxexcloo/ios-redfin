@@ -3,7 +3,7 @@
 so that they can be cross-checked (the HakiOS vayu port's soc.args convention). Pure Python, no dependencies.
 
   python3 -I tools/soc-args.py DTB             KEY=VALUE lines (soc.args), each with the DT node it came from
-  python3 -I tools/soc-args.py DTB --check     compare with the values the code uses (CODE below):
+  python3 -I tools/soc-args.py DTB --check     compare with the recorded code values (CODE below):
                                                exit 0 when all agree, 1 on a difference or a node not found
   python3 -I tools/soc-args.py --table         the values the code uses, and where
 
@@ -124,7 +124,7 @@ CODE = [
     (
         "wlan_wcss",
         0x18800000,
-        "phone/wifi/radio.c WLAN_PA, ath.c WCSS",
+        "phone/wifi/radio.c WLAN_PA",
         ("compat", r"^qcom,icnss$", 0),
     ),
     (
@@ -208,21 +208,17 @@ def translate(node, addr):
     return addr
 
 
-def regs(node):
-    """reg as [(cpu address, size)], with the parent's #address-cells/#size-cells."""
-    c = node.u32s("reg")
-    if not c or node.parent is None:
-        return []
-    ac, sc = (
-        ncells(node.parent, "#address-cells", 2),
-        ncells(node.parent, "#size-cells", 1),
-    )
-    out = []
-    for i in range(0, len(c) - ac - sc + 1, ac + sc):
-        a = translate(node, num(c[i : i + ac]))
-        if a is not None:
-            out.append((a, num(c[i + ac : i + ac + sc])))
-    return out
+def reg_at(node, index):
+    """Translate the indexed reg entry without changing its position."""
+    if node is None or node.parent is None:
+        return None
+    regs = node.reg()
+    if index < len(regs):
+        addr, size = regs[index]
+        addr = translate(node, addr)
+        if addr is not None:
+            return addr, size
+    return None
 
 
 def phandles(root):
@@ -254,37 +250,33 @@ def find(root, ph, how):
             if (kind == "name" and r.search(n.name)) or (
                 kind == "compat" and any(r.search(c) for c in n.strs("compatible"))
             ):
-                rg = regs(n)
-                if len(rg) > how[2]:
-                    out.append(
-                        (
-                            rg[how[2]][0],
-                            f"{n.path} reg[{how[2]}] size {rg[how[2]][1]:#x}",
-                        )
-                    )
+                reg = reg_at(n, how[2])
+                if reg is not None:
+                    addr, size = reg
+                    out.append((addr, f"{n.path} reg[{how[2]}] size {size:#x}"))
     elif kind == "regname":
         for n in select(root, how[1]):
-            names, rg = n.strs("reg-names"), regs(n)
-            if how[2] in names and names.index(how[2]) < len(rg):
-                a, s = rg[names.index(how[2])]
-                out.append((a, f'{n.path} reg "{how[2]}" size {s:#x}'))
+            names = n.strs("reg-names")
+            if how[2] in names and (reg := reg_at(n, names.index(how[2]))) is not None:
+                addr, size = reg
+                out.append((addr, f'{n.path} reg "{how[2]}" size {size:#x}'))
     elif kind in ("mem", "mem-size"):
         for n in select(root, how[1]):
             c = n.u32s(how[2])
             t = ph.get(c[0]) if c else None
-            rg = regs(t) if t is not None else []
-            if rg:
+            reg = reg_at(t, 0)
+            if reg is not None:
                 out.append(
                     (
-                        rg[0][0] if kind == "mem" else rg[0][1],
+                        reg[0] if kind == "mem" else reg[1],
                         f"{n.path} {how[2]} -> {t.path}",
                     )
                 )
     elif kind == "parent":
         for n in select(root, how[1]):
-            rg = regs(n.parent)
-            if rg:
-                out.append((rg[0][0], f"{n.parent.path} (bus of {n.name})"))
+            reg = reg_at(n.parent, 0)
+            if reg is not None:
+                out.append((reg[0], f"{n.parent.path} (bus of {n.name})"))
     elif kind in ("hwlock", "hwlock-pa"):
         for n in select(root, how[1]):
             c = n.u32s("hwlocks")
@@ -298,10 +290,10 @@ def find(root, ph, how):
             )  # qcom,tcsr-mutex: syscon = <&tcsr_mutex_regs base stride>
             if sc and sc[0] in ph:
                 block = ph[sc[0]]
-            rg = regs(block)
-            if not rg:
+            reg = reg_at(block, 0)
+            if reg is None:
                 continue
-            base = rg[0][0] + (sc[1] if sc and len(sc) > 1 else 0)
+            base = reg[0] + (sc[1] if sc and len(sc) > 1 else 0)
             stride = sc[2] if sc and len(sc) > 2 else 0x1000
             if kind == "hwlock":
                 out.append(

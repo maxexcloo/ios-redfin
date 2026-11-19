@@ -159,17 +159,15 @@ MOUNTS=("${MOUNTS[@]:1}")
 
 DEV=$(hdiutil attach -nobrowse -nomount "$OUT.dmg" | awk 'NR==1{print $1}')
 [[ -n $DEV ]] || die "could not attach $OUT.dmg for fsck"
-fsck_hfs -fn "$DEV" | sed 's/^/  /' || echo "  (fsck reported issues; see above)"
+MOUNTS=("$DEV" "${MOUNTS[@]}")
+fsck_hfs -fn "$DEV" | sed 's/^/  /' || die "fsck_hfs failed"
 hdiutil detach -quiet "$DEV"
+MOUNTS=("${MOUNTS[@]:1}")
 
 # hdiutil's UDIF with layout NONE is plain raw: the file is the volume itself.
+SIG=$(xxd -s 1024 -l 2 -p "$OUT.dmg")
+[[ $SIG == 4858 ]] || die "expected case-sensitive HFS+ (HX), got '$SIG'"
 mv "$OUT.dmg" "$OUT"
-SIG=$(xxd -s 1024 -l 2 -p "$OUT")
-case $SIG in
-	4858) echo "  HFS+ signature: HX (case-sensitive) OK" ;;
-	482b) echo "  HFS+ signature: H+ (case-INsensitive - wrong for iOS)" ;;
-	*)    die "no HFS+ signature at offset 1024 (got '$SIG')" ;;
-esac
 chown "${SUDO_UID:-0}:${SUDO_GID:-0}" "$OUT"
 
 say "done"
