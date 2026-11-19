@@ -67,9 +67,7 @@ jobs:
           for p in phone/metal2/bridge/patches/*.patch; do echo "apply $p"; git -C work/metal2vulkan apply --whitespace=nowarn "$PWD/$p"; done
           sh tools/build-m2v-bridge.sh
       - name: Build SweetMetal2.bundle
-        run: |
-          sh phone/metal2/build.sh
-          cp work/turnip/build-ios/src/freedreno/vulkan/libvulkan_freedreno.dylib phone/metal2/out/
+        run: sh phone/metal2/build.sh
       - name: Build Turnip Tests
         run: |
           sh phone/turnip/build.sh

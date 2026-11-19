@@ -17,7 +17,7 @@ rm -rf "$B" && mkdir -p "$B"
 [ -f "$B/SweetMetal2" ] || exit 1
 rm -rf out/SweetMetal2.dSYM; mv "$B/SweetMetal2.dSYM" out/ 2>/dev/null || dsymutil "$B/SweetMetal2" -o out/SweetMetal2.dSYM 2>/dev/null || true
 # unstripped copy (all local symbols) for tools/redfin-prof.py --macho-dir .../syms
-rm -rf out/syms && mkdir -p out/syms && cp "$B/SweetMetal2" out/syms/SweetMetal2
+rm -rf out/syms && mkdir -p out/syms && cp "$B/SweetMetal2" "$TURNIP" out/syms/
 strip -x "$B/SweetMetal2"
 cp Info.plist "$B/Info.plist"
 cp "$TURNIP" "$B/libvulkan_freedreno.dylib"

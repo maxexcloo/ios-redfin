@@ -144,6 +144,17 @@ jobs:
             dxb/build/xnu.obj
             dxb/fakeroot
           key: xnu-inc-${{ env.MACOS_VERSION }}-${{ env.KERNEL_CONFIG }}-${{ env.MACHINE_CONFIG }}-${{ github.run_id }}
+      - name: Collect Kernel
+        run: |
+          mkdir -p out
+          cp -R dxb/fakeroot/System/Library/Kernels/. out/
+          ls -la out
+          (cd out && shasum -a 256 kernel.* > SHA256SUMS)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: xnu-kernel
+          path: out/
+          if-no-files-found: error
       - name: Package Build Tree for Local Compiles
         if: always()
         run: |
@@ -164,19 +175,6 @@ jobs:
           name: xnu-buildtree
           path: buildtree.tgz
           retention-days: 7
-      - name: Collect Kernel
-        if: always()
-        run: |
-          mkdir -p out
-          cp -R dxb/fakeroot/System/Library/Kernels/. out/ 2>/dev/null || true
-          ls -la out
-          (cd out && shasum -a 256 kernel.* > SHA256SUMS) || true
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: xnu-kernel
-          path: out/
-          if-no-files-found: warn
       - name: Upload Build Logs
         if: always()
         uses: actions/upload-artifact@v7

@@ -8,16 +8,17 @@ and show the results from the live log (udp 5140).
   tools/redfin-cmd.py --wait 5 ...                listen longer for the results
 
 Results are the POKE:/SWEET CMD: lines the phone prints; all received log
-text is also appended to logs/live.txt. Don't run tools/redfin-live.py at the
-same time (one listener gets the datagrams).
+text is also appended to logs/live.txt. If redfin-live.py holds the port,
+it records the results instead.
 """
 
 import argparse
-import os
 import socket
 import sys
 import time
 from pathlib import Path
+
+from redfin_log import LIVE_LOG
 
 ap = argparse.ArgumentParser()
 ap.add_argument("cmd", nargs="*")
@@ -49,11 +50,11 @@ try:
 except OSError:
     # The Mac has no ARP entry for the phone yet: the subnet broadcast needs none.
     tx.sendto(text.encode(), ("192.168.7.255", 5141))
-end = time.time() + a.wait if rx else 0
-# The repo keeps its live captures in logs/ (gitignored); a fresh clone has none yet.
-logdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logs")
-os.makedirs(logdir, exist_ok=True)
-with open(os.path.join(logdir, "usb-live.log"), "ab") as f:
+if rx is None:
+    sys.exit(0)
+end = time.time() + a.wait
+LIVE_LOG.parent.mkdir(exist_ok=True)
+with LIVE_LOG.open("ab") as f:
     while time.time() < end:
         try:
             data, _ = rx.recvfrom(65536)

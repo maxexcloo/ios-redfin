@@ -50,6 +50,7 @@
 #include "ipa.h"
 #include "ipaqmi.h"
 #include "ipagsi.h"
+#include "wcn3998.h"
 
 static void set_stage(const char *stage);	/* wland auto: progress in /var/local/wland.boot (no-op otherwise) */
 static void ipa_auto_poll(void);		/* ipa=1 in cell.on: the IPA bring-up (IPA auto, below) */
@@ -163,10 +164,11 @@ static int wlan_power(void)
 	 * /var/local/wlan-rails.conf ("ldoXN MV" per line) replaces the table for experiments.
 	 */
 	static struct { char res[16]; uint32_t mv; } ldo[8] = {
-		{ "ldoa1", 0 }, { "ldoa14", 1800 }, { "ldoc2", 1304 }, { "ldoc11", 3312 }, { "ldoc10", 3312 },
+		{ "ldoa1", 0 }, { "ldoa14", WCN3998_XTAL_MV }, { "ldoc2", WCN3998_CORE_MV },
+		{ "ldoc11", 3312 }, { "ldoc10", WCN3998_PA_MV },
 	};
 	unsigned nldo = 5;
-	FILE *rf = fopen("/var/local/wlan-rails.conf", "r");
+	FILE *rf = fopen(WCN3998_RAILS_CONF, "r");
 	if (rf) {
 		char res[16];
 		unsigned mv;
@@ -176,7 +178,7 @@ static int wlan_power(void)
 			ldo[nldo++].mv = mv;
 		}
 		fclose(rf);
-		printf("wlan power: %u rails from /var/local/wlan-rails.conf\n", nldo);
+		printf("wlan power: %u rails from %s\n", nldo, WCN3998_RAILS_CONF);
 	}
 	for (unsigned i = 0; i < nldo; i++) {
 		uint32_t off[3] = { 0, 8, 4 }, val[3] = { ldo[i].mv, 7, 1 };

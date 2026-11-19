@@ -9,11 +9,10 @@ fb-shot.py RAW PNG STEP WxH:STRIDE   RAW is a direct-scanout slot surface (e.g. 
           PNG and the CLASS grid match the old panel-buffer shots and the fbref/*.feat references.
           (A RAW of at least 4608*2436 bytes without WxH:STRIDE is taken as 1125x2436:4608.)
 fb-shot.py --where REGS [MONKLOG]  which buffer the MDP scans now. REGS = 64 bytes of VIG0's registers
-          (redfin-files.py read /dev/pmem 0x0ae05000 64 REGS; read-only, as `p mdp dump`): SRC0_ADDR +0x14, YSTRIDE0
-          +0x24. Prints "direct PA LEN WxH:STRIDE slotN" (a scanout slot surface is latched) or "blit PA LEN -"
+          (redfin-files.py read /dev/pmem 0x0ae05000 64 REGS; read-only, as `p mdp dump`): SRC_IMG +0x04,
+          SRC0_ADDR +0x14, YSTRIDE0 +0x24. Prints "direct PA LEN WxH:STRIDE slotN" or "blit PA LEN -"
           (the old panel buffer 0xa0000000: scanout off, or the panel-buffer path after a non-slot frame).
-          MONKLOG (sweetmon's klog file) gives the slot's "SWEET SURF: scanout slot N (..., PA X) for a WxH surface"
-          line; default 1125x2436."""
+          MONKLOG (sweetmon's klog file) gives the slot number."""
 
 import json
 import os
@@ -25,6 +24,7 @@ from pathlib import Path
 
 W, H, S = 1088, 2340, 4352
 PW, PH = 1080, 2340  # panel pixels (grid and PNG coordinates)
+ARCHIVED_CANVAS = (1125, 2436, 4608)
 SRC = None  # None: panel buffer (stride S); else (w, h, stride) of a slot surface sampled into PW x PH
 BLIT = "0xa0000000 10183680"
 REF = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fbref")
@@ -96,17 +96,16 @@ def where(regs, monklog=None):
     )
     if pa == 0xA0000000 or pa == 0xA0A00000 or not stride:
         return f"blit 0x{int(pa if pa else 0xA0000000):x} {int(H * S):d} -"
-    w, h, slot = 1125, 2436, "?"
+    size = struct.unpack_from("<I", r, 0x04)[0]
+    w, h, slot = size & 0xFFFF, size >> 16, "?"
     if monklog and os.path.exists(monklog):
-        pat = re.compile(
-            rf"SWEET SURF: scanout slot (\d+) \([^)]*PA 0x{pa:x}\) for a (\d+)x(\d+) surface, (\d+)-byte rows"
-        )
+        pat = re.compile(rf"SWEET SURF: scanout slot (\d+) \([^)]*PA 0x{pa:x}\)")
         with open(monklog, "rb") as f:
             for line in f:
                 if b"SURF: scanout slot" in line:
                     m = pat.search(line.decode("latin-1"))
                     if m:
-                        slot, w, h = m[1], int(m[2]), int(m[3])
+                        slot = m[1]
     return f"direct 0x{int(pa):x} {int(stride * h):d} {int(w):d}x{int(h):d}:{int(stride):d} slot{slot!s}"
 
 
@@ -121,8 +120,8 @@ def main():
             f = feat_png(src)
         else:
             d = Path(src).read_bytes()
-            if len(d) >= 4608 * 2436:
-                SRC = (1125, 2436, 4608)
+            if len(d) >= ARCHIVED_CANVAS[1] * ARCHIVED_CANVAS[2]:
+                SRC = ARCHIVED_CANVAS
             f = feat(d)
         os.makedirs(REF, exist_ok=True)
         Path(os.path.join(REF, sys.argv[2] + ".feat")).write_text(json.dumps(f))
@@ -131,8 +130,8 @@ def main():
     g = re.fullmatch(r"(\d+)x(\d+):(\d+)", sys.argv[4]) if len(sys.argv) > 4 else None
     if g:
         SRC = (int(g[1]), int(g[2]), int(g[3]))
-    elif len(d) >= 4608 * 2436:
-        SRC = (1125, 2436, 4608)
+    elif len(d) >= ARCHIVED_CANVAS[1] * ARCHIVED_CANVAS[2]:
+        SRC = ARCHIVED_CANVAS
     if len(d) < (SRC[1] * SRC[2] if SRC else H * S):
         print("short")
         return

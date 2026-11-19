@@ -40,22 +40,19 @@ import struct
 import sys
 from pathlib import Path
 
+from redfin_camx import PARSER_V2, parse
+
 
 def load(path):
     d = Path(path).read_bytes()
-    if (
-        not d.startswith(b"QTI Chromatix Header")
-        or b"Parameter Parser V2.0.0" not in d[:0x60]
-    ):
+    if PARSER_V2 not in d[:0x60]:
         sys.exit(f"{path}: not a V2 CamX module file")
-    toff, tsz = struct.unpack_from("<QQ", d, 0xA8)
-    doff, dsz = struct.unpack_from("<QQ", d, 0xC0)
-    syms, order = {}, []
-    for o in range(toff, toff + tsz, 0x48):
-        sid, name, _kind, _parent, off, size = struct.unpack_from("<Q32sQQQQ", d, o)
-        syms[sid] = (name.split(b"\0")[0].decode("latin1"), off, size)
-        order.append(sid)
-    return d[doff : doff + dsz], syms, order
+    try:
+        data, symbols = parse(d)
+    except ValueError as exc:
+        sys.exit(f"{path}: {exc}")
+    syms = {sid: (name, off, size) for sid, name, _, _, off, size in symbols}
+    return data, syms, [symbol[0] for symbol in symbols]
 
 
 def main():

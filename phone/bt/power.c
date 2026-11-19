@@ -12,18 +12,19 @@
 #include <string.h>
 #include "pmem.h"
 #include "uart.h"
+#include "wcn3998.h"
 
 #define SW_CTRL_IO	(0x0f900000ull + 0x1000ull * 73 + 4)	/* TLMM EAST, GPIO 73 IN_OUT */
 
 static unsigned wland_mv(const char *res, unsigned def)
 {
-	FILE *f = fopen("/var/local/wlan-rails.conf", "r");
+	FILE *f = fopen(WCN3998_RAILS_CONF, "r");
 	char r[16];
 	unsigned mv;
 	if (!f)
 		return def;
 	while (fscanf(f, "%15s %u", r, &mv) == 2)
-		if (!strcmp(r, res) && mv) {
+		if (!strcmp(r, res)) {
 			def = mv;
 			break;
 		}
@@ -40,14 +41,17 @@ int bt_rails_on(int verbose)
 	printf("btd: rail smpa4 (vdd-io) 1800 mV on -> %d\n", rc);
 	bad |= rc;
 	static const struct { const char *res, *what; unsigned mv; } ldo[] = {
-		{ "ldoa14", "vdd-xtal", 1800 }, { "ldoc2", "vdd-core", 1304 }, { "ldoc10", "vdd-pa", 3312 },
+		{ "ldoa14", "vdd-xtal", WCN3998_XTAL_MV }, { "ldoc2", "vdd-core", WCN3998_CORE_MV },
+		{ "ldoc10", "vdd-pa", WCN3998_PA_MV },
 	};
 	for (unsigned i = 0; i < 3; i++) {
 		unsigned mv = wland_mv(ldo[i].res, ldo[i].mv);
 		uint32_t off[3] = { 0, 8, 4 }, val[3] = { mv, 7, 1 };
-		rc = pm_rpmh(ldo[i].res, 3, off, val);
-		printf("btd: rail %s (%s) %u mV HPM on -> %d%s\n", ldo[i].res, ldo[i].what, mv, rc,
-			mv != ldo[i].mv ? " (from wlan-rails.conf)" : "");
+		rc = mv ? pm_rpmh(ldo[i].res, 3, off, val) : pm_rpmh(ldo[i].res, 2, off + 1, val + 1);
+		if (mv)
+			printf("btd: rail %s (%s) %u mV HPM on -> %d\n", ldo[i].res, ldo[i].what, mv, rc);
+		else
+			printf("btd: rail %s (%s) HPM on, voltage unchanged -> %d\n", ldo[i].res, ldo[i].what, rc);
 		bad |= rc;
 	}
 	(void)verbose;

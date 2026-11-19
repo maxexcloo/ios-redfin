@@ -45,6 +45,8 @@ import struct
 import sys
 from pathlib import Path
 
+from redfin_camx import parse
+
 KIND = {
     0: "MCLK",
     1: "VANA",
@@ -72,15 +74,11 @@ OP = {
 
 def load(path):
     d = Path(path).read_bytes()
-    if not d.startswith(b"QTI Chromatix Header"):
-        sys.exit(f"{path}: not a CamX module file")
-    toff, tsz = struct.unpack_from("<QQ", d, 0xA8)
-    doff, dsz = struct.unpack_from("<QQ", d, 0xC0)
-    syms = {}
-    for o in range(toff, toff + tsz, 0x48):
-        sid, name, kind, parent, off, size = struct.unpack_from("<Q32sQQQQ", d, o)
-        syms[sid] = (name.split(b"\0")[0].decode("latin1"), kind, parent, off, size)
-    return d[doff : doff + dsz], syms
+    try:
+        data, symbols = parse(d)
+    except ValueError as exc:
+        sys.exit(f"{path}: {exc}")
+    return data, {symbol[0]: symbol[1:] for symbol in symbols}
 
 
 class Module:

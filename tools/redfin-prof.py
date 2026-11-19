@@ -6,7 +6,7 @@
   redfin-prof.py BIN report [options]          flat (self) and inclusive profiles, per thread, phases, off-CPU
       --sym FILE...      a2s / imgdump-imp output files (e.g. agent/outbox/*.out) to add to the symbol cache
       --macho-dir DIR    local unstripped Mach-Os for the images outside the shared cache (matched by file name;
-                         e.g. builds/metal2/<ref> for SweetMetal2 + libvulkan_freedreno)
+                         phone/metal2/out/syms or the syms directory from the Metal2 artefact)
       --kernel FILE      kernel Mach-O (builds/xnu/<ref>/kernel.development.sweet.gz) for kernel-mode samples
       --thread TEXT      only threads whose name (or tid) contains TEXT
       --phase NAME       only samples between mark NAME and the next mark
