@@ -71,6 +71,7 @@ Apple material, translated shaders, vendor firmware, calibration dumps, phone tr
 - A built `SweetHaptics.dylib` from the Userland artefact or `phone/haptics/build.sh`, installed at `/var/local/lib/SweetHaptics.dylib` by staging and rename.
 - `/var/local/mtl2-env`, one `KEY=VALUE` per line: `TU_DEBUG=sysmem`, `SWEET_UBWC=1`, `SWEET_M2V_COLOR_WRITES=fetch`, `SWEET_M2V_SCRATCH=1`, `SWEET_TIMELINE=1`, `SWEET_U0011=1`, `SWEET_U0012=1`, `SWEET_U0013=1`, `SWEET_U0014=1`, `SWEET_NILENC=1`, `SWEET_PREWARM=2`, `SWEET_LUMA_BOOST=0`.
 - `work/rtc-offset` for PMIC clock calibration (`tools/redfin-rtc.py`); `work/`, `logs/`, `out/` and `archive/` hold generated or preserved artefacts.
+- `work/lz4/` for sweetmon's LZ4 sources, fetched at the v1.10.0 pin by `tools/redfin-fetch-lz4.sh`.
 
 ## Credits & Licences
 
@@ -98,5 +99,5 @@ This repository is a fork of ios-sweet and keeps its [MIT License](LICENSE); the
 - **Mesa / Turnip** ([freedesktop](https://gitlab.freedesktop.org/mesa/mesa), MIT): the Adreno 620 Vulkan driver, fetched by `tools/build-turnip-ios.sh`. `phone/turnip/patches/` patch it.
 - **Linux**: `phone/wifi/` follows the drivers named in each file's header: ath10k (ISC) and the Qualcomm SMEM, SMP2P, GLINK, QRTR and remoteproc drivers (GPL-2.0), plus Bjorn Andersson's rmtfs, pd-mapper and tqftpserv for those protocols. The FTS touch driver (patch 0085) was written from Google's `fts_touch` module (GPL-2.0) and the phone's device tree.
 - **HexagonRPC** (the Sensor Shell / HexagonRPC contributors, [linux-msm](https://github.com/linux-msm/hexagonrpc), GPL-3.0-or-later; libhexagonrpc parts LGPL-3.0-or-later): `phone/fastrpc/` (`fastrpcd`, the ADSP sensors PD's file service) is built from hexagonrpcd's listener, localctl, apps_mem, iobuffer and libhexagonrpc marshalling code and interface definitions; each file keeps its header and says what changed. `fastrpcd` is a separate program under the **GPL-3.0-or-later** (`phone/fastrpc/LICENSE.hexagonrpc`), as are the files written for it (`transport.c`, `apps_std.c`, `fastrpcd.c`, `log.c` and the tests). Argument layouts and method numbers were checked against Qualcomm's fastrpc (`apps_std_skel.c`, BSD-3-Clause) and Android's `adsprpc.c` (GPL-2.0), read but not copied.
-- **LZ4** (Yann Collet, [GitHub](https://github.com/lz4/lz4), BSD-2-Clause): `phone/tools/lz4/lz4.c` and `lz4.h` from v1.10.0, unchanged (licence in `phone/tools/lz4/LICENSE`); sweetmon's LZ4 frame writer uses its block compressor.
+- **LZ4** (Yann Collet, [GitHub](https://github.com/lz4/lz4), BSD-2-Clause): `lib/lz4.c` and `lib/lz4.h` at the v1.10.0 pin, fetched into `work/lz4/` by `tools/redfin-fetch-lz4.sh` and not committed (licence in `phone/tools/lz4/LICENSE`); sweetmon's LZ4 frame writer uses its block compressor.
 - Fetched and built locally, not in Git: Google's factory image, AOSP `mkbootimg` and `avbtool` (Apache 2.0), TWRP, dropbear (MIT), toybox (0BSD) and dash (BSD).
