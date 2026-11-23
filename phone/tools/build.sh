@@ -34,8 +34,8 @@ build netsvc netsvc.m -fobjc-arc -framework Foundation -framework SystemConfigur
 build memwarn memwarn.c
 build pmem pmem.c
 build a2s a2s.c
-# sweetmon needs an iOS build of LZ4 with no packaged library available; ../../tools/redfin-fetch-lz4.sh
-# puts the v1.10.0 sources in ../../work/lz4/.
-build sweetmon sweetmon.c ../../work/lz4/lz4.c -DSWEETMON_VERSION="\"$(git rev-parse --short HEAD 2>/dev/null || date +%F)\""
+lz4=../../work/lz4
+../../tools/redfin-fetch-lz4.sh
+build sweetmon sweetmon.c "$lz4/lz4.c" -I "$lz4" -DSWEETMON_VERSION="\"$(git rev-parse --short HEAD 2>/dev/null || date +%F)\""
 build imgdump imgdump.c -lobjc
 ls -l out
