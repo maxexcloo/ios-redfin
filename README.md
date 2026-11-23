@@ -71,7 +71,7 @@ Apple material, translated shaders, vendor firmware, calibration dumps, phone tr
 - A built `SweetHaptics.dylib` from the Userland artefact or `phone/haptics/build.sh`, installed at `/var/local/lib/SweetHaptics.dylib` by staging and rename.
 - `/var/local/mtl2-env`, one `KEY=VALUE` per line: `TU_DEBUG=sysmem`, `SWEET_UBWC=1`, `SWEET_M2V_COLOR_WRITES=fetch`, `SWEET_M2V_SCRATCH=1`, `SWEET_TIMELINE=1`, `SWEET_U0011=1`, `SWEET_U0012=1`, `SWEET_U0013=1`, `SWEET_U0014=1`, `SWEET_NILENC=1`, `SWEET_PREWARM=2`, `SWEET_LUMA_BOOST=0`.
 - `work/rtc-offset` for PMIC clock calibration (`tools/redfin-rtc.py`); `work/`, `logs/`, `out/` and `archive/` hold generated or preserved artefacts.
-- `work/lz4/` for sweetmon's LZ4 sources, fetched at the v1.10.0 pin by `tools/redfin-fetch-lz4.sh`.
+- `work/lz4/` for sweetmon's LZ4 sources, fetched and verified by the phone tools build.
 
 ## Credits & Licences
 

@@ -6,7 +6,7 @@ name: Userland
 on:
   push:
     branches: [main]
-    paths: [.github/workflows/userland.yaml, "phone/**", tools/ios-cc]
+    paths: [.github/workflows/userland.yaml, "phone/**", tools/ios-cc, tools/redfin-fetch-lz4.sh]
   workflow_dispatch:
 
 env:
@@ -96,7 +96,7 @@ jobs:
           sh phone/bt/build.sh && cp phone/bt/out/btd phone/bt/out/bluetool phone/bt/out/tlv_test.log ../out/
           sh phone/fastrpc/build.sh
           cp phone/fastrpc/out/fastrpcd phone/fastrpc/org.iosonpixel.fastrpcd.plist ../out/
-          bash phone/tools/build.sh || echo "::warning::some phone tools failed"
+          bash phone/tools/build.sh
           sh phone/haptics/build.sh && cp phone/haptics/out/SweetHaptics.dylib ../out/ || echo "::warning::SweetHaptics.dylib failed"
           sh phone/fps/build.sh && cp phone/fps/out/SweetFPS.dylib ../out/ || echo "::warning::SweetFPS.dylib failed"
           if sh phone/audio/build.sh > ../out/audio-build.log 2>&1 && cp -R phone/audio/out/RedwoodAudio.driver phone/audio/out/sound_test phone/audio/out/camera_test phone/audio/out/camera_avtest phone/audio/out/mg_test phone/audio/out/vt_test phone/audio/out/mic_test ../out/; then
