@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 LZ4_COMMIT=ebb370ca83af193212df4dcbadcc5d87bc0de2f0
 out=work/lz4
 checksum=(sha256sum)
-if ! command -v sha256sum >/dev/null; then
+if command -v shasum >/dev/null; then
 	checksum=(shasum -a 256)
 fi
 verify() (
