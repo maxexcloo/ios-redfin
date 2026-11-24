@@ -42,7 +42,7 @@ out = ssh(
     f"i=0; while [ $i -lt {int(samples):d} ]; do pstack {pid!s}; i=$((i+1)); done"
 )
 t.join()
-Path(ROOT + "/work/m2v/profile-raw.txt").write_text(out)
+(Path(ROOT) / "work" / "profile-raw.txt").write_text(out)
 slide = int(re.search(r"slide 0x([0-9a-f]+)", out).group(1), 16)
 stacks = []  # (thread, [frames leaf first])
 for block in out.split("shared cache slide")[1:]:
